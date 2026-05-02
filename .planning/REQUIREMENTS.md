@@ -113,58 +113,56 @@
 
 ## Traceability
 
-*To be populated during roadmap creation.*
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INGST-01 | — | Pending |
-| INGST-02 | — | Pending |
-| INGST-03 | — | Pending |
-| INGST-04 | — | Pending |
-| INGST-05 | — | Pending |
-| INGST-06 | — | Pending |
-| INGST-07 | — | Pending |
-| EXEC-01 | — | Pending |
-| EXEC-02 | — | Pending |
-| EXEC-03 | — | Pending |
-| EXEC-04 | — | Pending |
-| EXEC-05 | — | Pending |
-| EXEC-06 | — | Pending |
-| RISK-01 | — | Pending |
-| RISK-02 | — | Pending |
-| RISK-03 | — | Pending |
-| RISK-04 | — | Pending |
-| AUDIT-01 | — | Pending |
-| AUDIT-02 | — | Pending |
-| AUDIT-03 | — | Pending |
-| AUDIT-04 | — | Pending |
-| AUDIT-05 | — | Pending |
-| AUDIT-06 | — | Pending |
-| IBKR-01 | — | Pending |
-| IBKR-02 | — | Pending |
-| IBKR-03 | — | Pending |
-| IBKR-04 | — | Pending |
-| IBKR-05 | — | Pending |
-| POS-01 | — | Pending |
-| POS-02 | — | Pending |
-| POS-03 | — | Pending |
-| DASH-01 | — | Pending |
-| DASH-02 | — | Pending |
-| DASH-03 | — | Pending |
-| DASH-04 | — | Pending |
-| NOTF-01 | — | Pending |
-| NOTF-02 | — | Pending |
-| DEPL-01 | — | Pending |
-| DEPL-02 | — | Pending |
-| DEPL-03 | — | Pending |
-| DEPL-04 | — | Pending |
-| DEPL-05 | — | Pending |
+| DEPL-01 | Phase 1 | Pending |
+| DEPL-03 | Phase 1 | Pending |
+| DEPL-04 | Phase 1 | Pending |
+| DEPL-05 | Phase 1 | Pending |
+| INGST-01 | Phase 2 | Pending |
+| INGST-02 | Phase 2 | Pending |
+| INGST-03 | Phase 2 | Pending |
+| INGST-04 | Phase 2 | Pending |
+| INGST-05 | Phase 2 | Pending |
+| INGST-06 | Phase 2 | Pending |
+| INGST-07 | Phase 2 | Pending |
+| AUDIT-01 | Phase 2 | Pending |
+| AUDIT-02 | Phase 2 | Pending |
+| AUDIT-03 | Phase 2 | Pending |
+| AUDIT-04 | Phase 2 | Pending |
+| AUDIT-05 | Phase 2 | Pending |
+| AUDIT-06 | Phase 2 | Pending |
+| IBKR-01 | Phase 3 | Pending |
+| IBKR-02 | Phase 3 | Pending |
+| IBKR-03 | Phase 3 | Pending |
+| IBKR-05 | Phase 3 | Pending |
+| EXEC-01 | Phase 4 | Pending |
+| EXEC-02 | Phase 4 | Pending |
+| EXEC-03 | Phase 4 | Pending |
+| EXEC-04 | Phase 4 | Pending |
+| RISK-01 | Phase 4 | Pending |
+| RISK-02 | Phase 4 | Pending |
+| RISK-03 | Phase 4 | Pending |
+| RISK-04 | Phase 4 | Pending |
+| EXEC-05 | Phase 5 | Pending |
+| EXEC-06 | Phase 5 | Pending |
+| IBKR-04 | Phase 5 | Pending |
+| POS-01 | Phase 5 | Pending |
+| POS-02 | Phase 5 | Pending |
+| POS-03 | Phase 5 | Pending |
+| DASH-01 | Phase 7 | Pending |
+| DASH-02 | Phase 7 | Pending |
+| DASH-03 | Phase 7 | Pending |
+| DASH-04 | Phase 7 | Pending |
+| NOTF-01 | Phase 7 | Pending |
+| NOTF-02 | Phase 7 | Pending |
+| DEPL-02 | Phase 8 | Pending |
 
 **Coverage:**
 - v1 requirements: 42 total
-- Mapped to phases: 0 (roadmap not yet created)
-- Unmapped: 36 ⚠️
+- Mapped to phases: 42
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-05-01*
-*Last updated: 2026-05-01 after initial definition*
+*Last updated: 2026-05-02 — traceability updated after Phase 1 Infrastructure insertion*
