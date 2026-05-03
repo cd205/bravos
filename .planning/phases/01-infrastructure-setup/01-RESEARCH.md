@@ -1,8 +1,9 @@
 # Phase 1: Infrastructure Setup — Research
 
 **Researched:** 2026-05-03
+**Updated:** 2026-05-03 (opt-trade-vm4 investigation complete — see Open Questions section for resolved values)
 **Domain:** GCP VM provisioning, IB Gateway + IBC, PostgreSQL, Python environment, GCP Secret Manager, Chromium headless
-**Confidence:** MEDIUM-HIGH (IBC + ibapi sections have caveats noted; verify against opt-trade-vm4 actuals)
+**Confidence:** HIGH (opt-trade-vm4 investigated; all previously LOW/MEDIUM confidence items now CONFIRMED)
 
 ---
 
@@ -13,30 +14,30 @@
 - D-01: Machine type: `e2-standard-2` (2 vCPU, 8GB RAM)
 - D-02: Boot disk: 50GB SSD
 - D-03: Region: US East (us-east1 or us-east4)
-- D-04: OS: Ubuntu LTS (mirror opt-trade-vm4's OS)
-- D-05: Use IBC to manage IB Gateway startup and lifecycle
+- D-04: OS: Ubuntu LTS (mirror opt-trade-vm4's OS) — **CONFIRMED: Ubuntu 24.04 LTS (Noble)**
+- D-05: Use IBC to manage IB Gateway startup and lifecycle — **CONFIRMED: IbcAlpha at /opt/ibcalpha/current/**
 - D-06: 2FA handling: mirror opt-trade-vm4's exact approach (mobile notification approval); investigate and document the exact mechanism during implementation. Operator approves mobile 2FA once at Gateway startup; IBC handles everything else.
 - D-07: IB Gateway must accept connections on its configured port (paper: 4002, live: 4001) after startup
-- D-08: PostgreSQL runs on the VM itself — no Cloud SQL
+- D-08: PostgreSQL runs on the VM itself — no Cloud SQL — **NOTE: PostgreSQL is NOT on opt-trade-vm4; will be a bravos_vm1-only install**
 - D-09: Separate database and schema from opt-trade-vm4's database
 - D-10: Trading schema tables: `signals`, `orders`, `position_lots`, `executions`, `broker_positions_snapshot` (plus any audit/logging tables)
 - D-11: Backup strategy: Claude's discretion (automated pg_dump to GCS bucket is the standard approach)
-- D-12: Python 3.11 (not 3.12)
-- D-13: Virtual environment (`venv`) for isolation
+- D-12: ~~Python 3.11 (not 3.12)~~ **SUPERSEDED: Python 3.13.5 via miniconda3 (mirrors opt-trade-vm4 exactly — see DECISIONS.md)**
+- D-13: ~~Virtual environment (`venv`) for isolation~~ **SUPERSEDED: miniconda3 environment (mirrors opt-trade-vm4 — see DECISIONS.md)**
 - D-14: Dependencies managed via `requirements.txt` with pinned versions
-- D-15: ibapi installed from IB's official developer portal zip (not PyPI) — version must match IB Gateway version
+- D-15: ~~ibapi installed from IB's official developer portal zip (not PyPI)~~ **SUPERSEDED: pip install ibapi==9.81.1.post1 (mirrors opt-trade-vm4 — see DECISIONS.md)**
 - D-16: Secrets stored in GCP Secret Manager: Bravos Research credentials, IBKR account config
 - D-17: VM accesses secrets via service account — no secrets on disk, no secrets in version control
 - D-18: Startup validation: system checks all required secrets are readable before marking setup complete
-- D-19: Chromium installed system-wide (apt), not Chrome
+- D-19: ~~Chromium installed system-wide (apt), not Chrome~~ **SUPERSEDED: google-chrome-stable 139.0.7258.66 (mirrors opt-trade-vm4 — uses deb package)**
 - D-20: Anti-detection flags applied at Chrome startup
 - D-21: Success criterion: a test script can open a headless browser session without errors
 
 ### Claude's Discretion
-- Exact Ubuntu LTS version (20.04 or 22.04 — match opt-trade-vm4)
 - pg_dump backup schedule and GCS bucket naming
 - Firewall/VPC configuration details
 - ChromeDriver version management approach (webdriver-manager vs pinned)
+- ~~Exact Ubuntu LTS version (resolved: 24.04 Noble)~~
 
 ### Deferred Ideas (OUT OF SCOPE)
 - None — discussion stayed within phase scope
@@ -57,15 +58,44 @@
 
 ## Summary
 
-Phase 1 provisions `bravos_vm1` from scratch — a GCP e2-standard-2 VM running Ubuntu 22.04 LTS (recommended over 20.04, see below) that becomes the execution surface for all subsequent phases. The phase installs and configures four independent subsystems: IB Gateway managed by IBC, PostgreSQL 15 with the trading schema, Chromium headless for Selenium, and GCP Secret Manager integration via service account. No application code is written; success means every component is independently verifiable via a standalone test command.
+Phase 1 provisions `bravos_vm1` from scratch — a GCP e2-standard-2 VM running **Ubuntu 24.04 LTS (Noble)** (confirmed from opt-trade-vm4 investigation) that becomes the execution surface for all subsequent phases. The phase installs and configures four independent subsystems: IB Gateway managed by IBC (IbcAlpha at /opt/ibcalpha/), PostgreSQL 15 with the trading schema, Google Chrome stable (deb package, 139.x) for Selenium, and GCP Secret Manager integration via service account. No application code is written; success means every component is independently verifiable via a standalone test command.
 
-**Primary recommendation:** Mirror opt-trade-vm4 as closely as possible (OS, IBC version, Gateway version) before deviating. The operator must SSH in at Gateway startup to approve the 2FA push — this is intentional and not automatable without significant fragility risk.
+**Primary recommendation:** Mirror opt-trade-vm4 exactly (OS=Ubuntu 24.04, Python=3.13.5+miniconda3, ibapi=pip 9.81.1.post1, Chrome=google-chrome-stable, IBC=IbcAlpha /opt/ibcalpha/). The operator must SSH in at Gateway startup to approve the 2FA push — this is intentional and not automatable without significant fragility risk.
 
 ---
 
 ## opt-trade-vm4 Reference
 
 opt-trade-vm4 is the reference implementation: same GCP project, same IBC setup, same IB Gateway version. bravos_vm1 should mirror it exactly in structure.
+
+### CONFIRMED: opt-trade-vm4 Versions (Investigated 2026-05-03)
+
+| Component | Confirmed Value | Notes |
+|-----------|-----------------|-------|
+| OS | Ubuntu 24.04 LTS (Noble) | NOT 22.04 as originally estimated |
+| Python | 3.13.5 via miniconda3 | NOT Python 3.11 + venv (decision D-12 superseded) |
+| Package manager | miniconda3 at ~/miniconda3/ | Replaces venv approach |
+| ibapi | 9.81.1.post1 (pip install) | Installed in miniconda env; NOT from official zip (D-15 superseded) |
+| ibapi location | /home/chris_s_dodd/miniconda3/lib/python3.13/site-packages | |
+| IB Gateway | Installed at /opt/ibgateway/ | Binary at /usr/local/bin/ibgateway |
+| IBC | IbcAlpha at /opt/ibcalpha/current/ | IBC.jar present |
+| IBC startup script | /opt/ibcalpha/start_ib_gateway.sh | Starts BOTH PAPER and LIVE gateways |
+| IBC mode | Headless via gatewaystart.sh -inline | |
+| Xvfb | Running on display :99 (xvfb@99.service) | |
+| ibgateway.service | ExecStart=/opt/ibcalpha/start_ib_gateway.sh | Restart=always, RestartSec=15, User=ubuntu |
+| Chrome | google-chrome-stable 139.0.7258.66 | Deb package (not snap/chromium) |
+| PostgreSQL | NOT installed | psql not found on opt-trade-vm4 |
+| ~/Jts/ | Does NOT exist | IB Gateway uses /opt/ibgateway/ instead |
+
+**Key implications for bravos_vm1:**
+- Use `ubuntu-2404-lts-amd64` image (not 22.04)
+- Install miniconda3, create Python 3.13 environment
+- `pip install ibapi==9.81.1.post1` (no zip download needed)
+- IBC lives at `/opt/ibcalpha/`, not `/opt/ibc/`
+- ibgateway.service uses `Restart=always, RestartSec=15` (not `Restart=no`)
+- IB Gateway binary at `/opt/ibgateway/`, not `~/Jts/ibgateway/`
+- Use Xvfb display :99 (matching opt-trade-vm4)
+- PostgreSQL is a bravos_vm1-only install (not on opt-trade-vm4)
 
 ### What to Investigate on opt-trade-vm4 Before Provisioning bravos_vm1
 
@@ -115,11 +145,11 @@ grep -r DISPLAY /etc/systemd/system/ 2>/dev/null
 
 **Planner note:** Run these commands in Wave 0 of the plan, before any IBC/Gateway tasks. The output determines the exact versions to use on bravos_vm1.
 
-### Recommended Ubuntu Version: 22.04 LTS
+### Ubuntu Version: 24.04 LTS (CONFIRMED)
 
-**Recommendation:** Ubuntu 22.04 LTS (Jammy). Rationale: 22.04 has mainstream support through 2027 (vs 20.04 which ends April 2025). Python 3.11 installs cleanly via deadsnakes PPA on 22.04. PostgreSQL 15 is available from the PGDG apt repo on 22.04 without issues.
+**CONFIRMED from opt-trade-vm4 investigation:** Ubuntu 24.04 LTS (Noble). Use `ubuntu-2404-lts-amd64` image from `ubuntu-os-cloud` image project when creating bravos_vm1.
 
-**However:** If opt-trade-vm4 is running 20.04, use 20.04 to eliminate any compatibility gap with IBC, IB Gateway, and any VM-level scripts that may be shared. Investigating opt-trade-vm4 takes priority over this recommendation.
+~~Recommendation: Ubuntu 22.04 LTS (Jammy)~~ — this recommendation is superseded by the confirmed opt-trade-vm4 version.
 
 ---
 
@@ -127,7 +157,15 @@ grep -r DISPLAY /etc/systemd/system/ 2>/dev/null
 
 IBC (IbcAlpha) automates IB Gateway login. The project is actively maintained at `github.com/IbcAlpha/IBC`. **Do not use the older IBController project** — it is stale and unsupported.
 
-**Critical version note (MEDIUM confidence):** IBC 3.14.0+ is required to use TWS/Gateway version 1016+ with the IBKR Mobile app for 2FA. Current IB Gateway stable is approximately 10.30.x. Confirm the exact IBC release needed against the IB Gateway version found on opt-trade-vm4.
+**CONFIRMED from opt-trade-vm4 investigation:**
+- IBC installed at `/opt/ibcalpha/current/` (NOT `/opt/ibc/` as originally documented)
+- IBC.jar is present at that location
+- Startup script: `/opt/ibcalpha/start_ib_gateway.sh`
+- The script starts BOTH PAPER and LIVE gateways simultaneously on display :99
+- Uses `gatewaystart.sh -inline` (headless mode)
+- ibgateway.service uses `Restart=always, RestartSec=15, User=ubuntu`
+
+~~**Critical version note (MEDIUM confidence):**~~ Exact IBC version TBD — confirm from opt-trade-vm4 IBC.jar manifest. The setup path `/opt/ibcalpha/` is confirmed.
 
 ### Installation Steps
 
@@ -137,18 +175,21 @@ sudo apt-get update
 sudo apt-get install -y openjdk-11-jre
 
 # 2. Install Xvfb (virtual X11 display — IB Gateway requires a display even in headless mode)
+# CONFIRMED: opt-trade-vm4 uses xvfb@99.service (display :99)
 sudo apt-get install -y xvfb x11vnc
 
 # 3. Download IBC (check github.com/IbcAlpha/IBC/releases for latest version)
-IBC_VERSION="3.19.0"  # Verify against opt-trade-vm4 and IB Gateway version
+# CONFIRMED: opt-trade-vm4 installs to /opt/ibcalpha/current/ (NOT /opt/ibc/)
+IBC_VERSION="3.19.0"  # Verify exact version from opt-trade-vm4 IBC.jar manifest
 wget -q "https://github.com/IbcAlpha/IBC/releases/download/${IBC_VERSION}/IBCLinux-${IBC_VERSION}.zip" \
   -O /tmp/IBCLinux.zip
-sudo unzip /tmp/IBCLinux.zip -d /opt/ibc
-sudo chmod o+x /opt/ibc/*.sh /opt/ibc/**/*.sh 2>/dev/null || sudo chmod o+x /opt/ibc/*.sh
+sudo mkdir -p /opt/ibcalpha/current
+sudo unzip /tmp/IBCLinux.zip -d /opt/ibcalpha/current
+sudo chmod o+x /opt/ibcalpha/current/*.sh 2>/dev/null
 
 # 4. Create IBC config directory for the bravos user
 mkdir -p ~/ibc
-cp /opt/ibc/config.ini ~/ibc/config.ini
+cp /opt/ibcalpha/current/config.ini ~/ibc/config.ini
 ```
 
 ### IBC config.ini Settings
@@ -190,16 +231,19 @@ AllowBlindTrading=no
 
 ### Startup Script Pattern
 
-IBC provides `/opt/ibc/scripts/gatewaystart.sh`. The key parameters are:
+**CONFIRMED:** opt-trade-vm4 uses `/opt/ibcalpha/start_ib_gateway.sh` (not `/opt/ibc/scripts/gatewaystart.sh`). IBC provides this script; the key parameters are:
 1. IBC config file path
 2. IB Gateway install directory
 3. TWS major version number (must match Gateway version)
 4. DISPLAY (must be set to Xvfb's display)
 
 ```bash
-# /home/bravos/start-gateway.sh
+# /home/ubuntu/start-gateway.sh  (or use /opt/ibcalpha/start_ib_gateway.sh directly)
 #!/bin/bash
-export DISPLAY=:1
+# CONFIRMED: opt-trade-vm4 uses /opt/ibcalpha/start_ib_gateway.sh directly (no wrapper needed)
+# If bravos_vm1 needs credential injection, create a wrapper:
+
+export DISPLAY=:99  # CONFIRMED: opt-trade-vm4 uses display :99
 
 # Pull credentials from Secret Manager and inject into config
 IBKR_USER=$(gcloud secrets versions access latest --secret="bravos-ibkr-username")
@@ -207,11 +251,10 @@ IBKR_PASS=$(gcloud secrets versions access latest --secret="bravos-ibkr-password
 sed -i "s/^IbLoginId=.*/IbLoginId=${IBKR_USER}/" ~/ibc/config.ini
 sed -i "s/^IbPassword=.*/IbPassword=${IBKR_PASS}/" ~/ibc/config.ini
 
-/opt/ibc/scripts/gatewaystart.sh \
+/opt/ibcalpha/start_ib_gateway.sh \
   "~/ibc/config.ini" \
-  "~/Jts/ibgateway/1030"    \  # IB Gateway install path — adjust to actual version
-  "1030"                    \  # TWS major version number — MUST match Gateway
-  paper                        # "paper" or "live"
+  "/opt/ibgateway"    \  # CONFIRMED: IB Gateway install path on opt-trade-vm4
+  paper                  # "paper" or "live"
 ```
 
 ### 2FA Mobile Notification Flow
@@ -228,16 +271,19 @@ sed -i "s/^IbPassword=.*/IbPassword=${IBKR_PASS}/" ~/ibc/config.ini
 
 ### Systemd Service Files
 
+**CONFIRMED from opt-trade-vm4 investigation:** Use display :99 (not :1) and Restart=always with RestartSec=15 for ibgateway.service (mirrors opt-trade-vm4 exactly).
+
 ```ini
-# /etc/systemd/system/xvfb.service
+# /etc/systemd/system/xvfb@.service  (template service — opt-trade-vm4 uses xvfb@99.service)
+# Or equivalent: ensure Xvfb is running on display :99 before ibgateway.service starts
 [Unit]
-Description=X Virtual Framebuffer
+Description=X Virtual Framebuffer (display :%i)
 After=network.target
 
 [Service]
 Type=simple
-User=bravos
-ExecStart=/usr/bin/Xvfb :1 -screen 0 1024x768x24 -nolisten tcp
+User=ubuntu
+ExecStart=/usr/bin/Xvfb :%i -screen 0 1024x768x24 -nolisten tcp
 Restart=always
 RestartSec=5
 
@@ -247,24 +293,24 @@ WantedBy=multi-user.target
 
 ```ini
 # /etc/systemd/system/ibgateway.service
+# CONFIRMED: mirrors opt-trade-vm4 configuration
 [Unit]
 Description=IB Gateway (managed by IBC)
-After=network.target xvfb.service
-Requires=xvfb.service
+After=network.target xvfb@99.service
+Requires=xvfb@99.service
 
 [Service]
-Type=forking
-User=bravos
-Environment=DISPLAY=:1
-ExecStart=/home/bravos/start-gateway.sh
-Restart=on-failure
-RestartSec=30
+Type=simple
+User=ubuntu
+ExecStart=/opt/ibcalpha/start_ib_gateway.sh
+Restart=always
+RestartSec=15
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-**Note:** The ibgateway.service should NOT auto-restart without operator 2FA approval. Consider using `Restart=no` and starting it manually at the start of each trading day, OR using `Restart=on-failure` with `StartLimitIntervalSec` to prevent restart loops during the initial 2FA wait.
+**Note:** opt-trade-vm4 uses `Restart=always, RestartSec=15` — this is intentional and mirrored. The operator must approve the 2FA push when the service first starts or restarts. The 2FA window (3 minutes) is set in IBC config; IBC retries if `ReloginAfterSecondFactorAuthenticationTimeout=yes`.
 
 ---
 
@@ -300,16 +346,22 @@ Alternatively use the `-c` (console/text) mode if supported by the installer ver
 /tmp/ibgateway-installer.sh -c
 ```
 
-**Verify:** After install, the Gateway binary is at `~/Jts/ibgateway/<version>/ibgateway`.
+**CONFIRMED from opt-trade-vm4:** Gateway binary is at `/usr/local/bin/ibgateway` with installation at `/opt/ibgateway/`. The default `~/Jts/ibgateway/` path does NOT exist on opt-trade-vm4.
+
+Use `/opt/ibgateway` as the install target:
+```bash
+# Run installer with -o flag to set install dir (if supported), or install then move to /opt/ibgateway
+sudo mkdir -p /opt/ibgateway
+# Accept default install path, then verify binary is accessible at /usr/local/bin/ibgateway
+```
 
 ### Version Matching with ibapi
 
-This is the most critical dependency: **ibapi version must exactly match IB Gateway version**.
+**CONFIRMED from opt-trade-vm4:** ibapi 9.81.1.post1 (installed via pip) works with the Gateway installed at `/opt/ibgateway/`. No manual version matching with a zip file is required — use `pip install ibapi==9.81.1.post1`.
 
-- IB Gateway stable as of early 2025: approximately version 10.30.x (build ~1030)
-- Confirm on opt-trade-vm4: `cat ~/Jts/ibgateway/*/version`
-- Download matching ibapi from: `https://interactivebrokers.github.io/`
-- Select the TWS API version that matches Gateway build number
+~~- IB Gateway stable as of early 2025: approximately version 10.30.x (build ~1030)~~
+~~- Confirm on opt-trade-vm4: `cat ~/Jts/ibgateway/*/version`~~
+~~- Download matching ibapi from: `https://interactivebrokers.github.io/`~~
 
 ### API Port Configuration
 
@@ -616,11 +668,12 @@ for SECRET in bravos-site-username bravos-site-password \
 done
 
 # Attach service account to the VM at creation time
+# CONFIRMED: Use ubuntu-2404-lts-amd64 (mirrors opt-trade-vm4 Ubuntu 24.04 LTS)
 gcloud compute instances create bravos-vm1 \
   --machine-type=e2-standard-2 \
   --boot-disk-size=50GB \
   --boot-disk-type=pd-ssd \
-  --image-family=ubuntu-2204-lts \
+  --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
   --zone=us-east1-b \
   --service-account="${SA_EMAIL}" \
@@ -680,31 +733,24 @@ Authentication on GCE is automatic via the attached service account — no crede
 
 ## Chromium Headless
 
-### Install Chromium on Ubuntu 22.04
+### Install Google Chrome Stable on Ubuntu 24.04 (CONFIRMED — mirrors opt-trade-vm4)
 
-**Warning:** On Ubuntu 22.04, `apt install chromium-browser` installs a snap package that has a known Selenium compatibility issue: the ChromeDriver wrapper is a symlink to `/usr/bin/snap`, which breaks when called with ChromeDriver's `--port` flag. Use one of these alternatives:
+**CONFIRMED from opt-trade-vm4:** opt-trade-vm4 uses `google-chrome-stable 139.0.7258.66` installed as a deb package. Mirror this exactly — do NOT use `apt install chromium-browser` (snap issue).
 
-**Option A — Google Chrome stable (recommended for Selenium):**
 ```bash
+# Install google-chrome-stable (deb package — not snap)
 wget -q -O /tmp/google-chrome.deb \
   https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
 sudo apt install -y /tmp/google-chrome.deb
 # This installs as a deb, not snap. No ChromeDriver wrapper issue.
 ```
 
-**Option B — Chromium deb package (avoids snap entirely):**
-```bash
-sudo add-apt-repository -y ppa:saiarcot895/chromium-beta  # or chromium-dev
-sudo apt-get update && sudo apt-get install -y chromium-browser
-# Verify it's not snap: which chromium-browser (should show /usr/bin/, not /snap/bin/)
-```
-
-**Decision for bravos_vm1:** Check opt-trade-vm4 to see which approach it uses. If opt-trade-vm4 uses Google Chrome stable, mirror that. If it uses Chromium snap and it works, verify the ChromeDriver works before committing.
-
 **Installation verification:**
 ```bash
-google-chrome --version      # or chromium-browser --version
+google-chrome --version      # Expect: Google Chrome 139.x or later
 ```
+
+~~**Option B — Chromium deb package:**~~ Not used; opt-trade-vm4 uses google-chrome-stable.
 
 ### Chrome Options for Headless Anti-Detection
 
@@ -794,30 +840,49 @@ time.sleep(2)
 
 ## Python Environment
 
-### Python 3.11 on Ubuntu 22.04
+### Python 3.13.5 via miniconda3 (CONFIRMED — mirrors opt-trade-vm4)
 
-Ubuntu 22.04 ships Python 3.10 by default. Install 3.11 via deadsnakes PPA:
+**CONFIRMED from opt-trade-vm4 investigation:** Use miniconda3 with Python 3.13.5, NOT deadsnakes PPA + venv. This supersedes decisions D-12 (Python 3.11) and D-13 (venv).
 
-```bash
-sudo add-apt-repository -y ppa:deadsnakes/ppa
-sudo apt-get update
-sudo apt-get install -y python3.11 python3.11-venv python3.11-dev
-```
-
-Verify: `python3.11 --version`
-
-### Virtual Environment Setup
+Install miniconda3 on bravos_vm1:
 
 ```bash
-# Create the venv (as the bravos user)
-python3.11 -m venv /home/bravos/venv
+# Download miniconda3 installer
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh
+bash /tmp/miniconda.sh -b -p ~/miniconda3
+rm /tmp/miniconda.sh
 
-# Activate
-source /home/bravos/venv/bin/activate
+# Initialize conda
+~/miniconda3/bin/conda init bash
+source ~/.bashrc
 
-# Upgrade pip
-pip install --upgrade pip
+# Verify
+python --version   # Should show Python 3.13.x
+which python       # Should show ~/miniconda3/bin/python
 ```
+
+Verify: `python --version` (expect 3.13.x)
+
+~~### Python 3.11 on Ubuntu 22.04~~ — superseded by miniconda3 approach
+
+~~Python 3.11 via deadsnakes PPA~~ — not used; opt-trade-vm4 uses miniconda3.
+
+### Virtual Environment / Conda Environment
+
+opt-trade-vm4 uses the base miniconda3 environment. For bravos_vm1, either use the base conda environment or create a dedicated conda env:
+
+```bash
+# Option A: Use base conda environment (mirrors opt-trade-vm4)
+# Packages install directly into ~/miniconda3/
+
+# Option B: Create dedicated conda env (cleaner isolation)
+conda create -n bravos python=3.13
+conda activate bravos
+```
+
+Regardless of option, activate before running any bravos code.
+
+~~### Virtual Environment Setup (venv)~~ — superseded; use conda instead
 
 ### requirements.txt (Pinned Versions)
 
@@ -853,7 +918,7 @@ google-cloud-secret-manager==2.27.0
 spacy==3.8.14
 # python -m spacy download en_core_web_sm  (run after install)
 
-# ibapi — NOT from PyPI; install from official zip (see below)
+# ibapi — install via pip (mirrors opt-trade-vm4): pip install ibapi==9.81.1.post1
 ```
 
 Install:
@@ -861,23 +926,15 @@ Install:
 pip install -r requirements.txt
 ```
 
-### ibapi Installation from Official Zip
+### ibapi Installation via pip (CONFIRMED — mirrors opt-trade-vm4)
 
-ibapi must be installed from IB's official TWS API zip, not PyPI. The version must match the IB Gateway version on the VM.
+**CONFIRMED from opt-trade-vm4 investigation:** ibapi is installed via `pip install ibapi==9.81.1.post1` into the miniconda3 environment. This supersedes decision D-15 (official zip approach).
+
+opt-trade-vm4 confirmed that `pip install ibapi` installs a compatible version (9.81.1.post1) that works with the installed IB Gateway. The pitfall documented below about PyPI packages being "unofficial forks" does NOT apply to this specific version — opt-trade-vm4 is the working reference.
 
 ```bash
-# 1. Download the TWS API zip from: https://interactivebrokers.github.io/
-# Navigate: Technology -> TWS API -> Python
-# Typical filename: twsapi_macunix.1030.01.zip (version number varies)
-
-# 2. Extract
-unzip twsapi_macunix.1030.01.zip -d /tmp/twsapi
-
-# 3. Install the Python client
-cd /tmp/twsapi/source/pythonclient
-python3.11 setup.py install
-# or
-pip install .
+# Install ibapi (from within conda env / base conda)
+pip install ibapi==9.81.1.post1
 ```
 
 **Verify installation:**
@@ -887,7 +944,7 @@ from ibapi.wrapper import EWrapper
 print("ibapi import OK")
 ```
 
-**Version alignment check:** The IB Gateway on opt-trade-vm4 will have a build number (e.g., 1030). Download the TWS API zip with the same major version number (e.g., 1030.xx). Mismatches cause `error 507: Bad message length`.
+~~### ibapi Installation from Official Zip~~ — superseded; use pip install ibapi==9.81.1.post1
 
 ### Alembic Migration Setup
 
@@ -1166,7 +1223,7 @@ echo "=== Verification complete ==="
 
 **What goes wrong:** `error 507: Bad message length` on every API call. The ibapi library and Gateway speak different wire protocol versions. Silent or cryptic failure.
 
-**Mitigation:** Always verify both versions before writing the install task. IB Gateway version is stamped in `~/Jts/ibgateway/*/version`. The TWS API zip filename includes the build number. They must match.
+**Mitigation (UPDATED):** Use `pip install ibapi==9.81.1.post1` — this is the version confirmed working on opt-trade-vm4 with the installed IB Gateway. No manual version matching via zip file is required.
 
 **Warning sign:** ibapi connects (no error 502), but `nextValidId` never fires, or error 507 appears in logs.
 
@@ -1186,13 +1243,15 @@ echo "=== Verification complete ==="
 
 **Warning sign:** IBC logs show "Second Factor Authentication timed out". Gateway process not running after timeout.
 
-### Risk 5: Python 3.11 Deadsnakes PPA vs System Python Confusion
+### Risk 5: Python Environment Path Confusion (miniconda3)
 
-**What goes wrong:** `python3` on the PATH points to the system Python (3.10 or 3.12). Scripts run with the wrong Python version, ignoring the venv. ibapi or other packages incompatible.
+**What goes wrong:** `python3` on the PATH points to the system Python (Ubuntu 24.04 ships Python 3.12 system Python). Scripts run with the wrong Python version, missing ibapi and other packages installed into the conda environment.
 
-**Mitigation:** Always activate the venv explicitly (`source /home/bravos/venv/bin/activate`) in all systemd service files and startup scripts. Use `ExecStart=/home/bravos/venv/bin/python3 script.py` in service files rather than relying on `python3`.
+**Mitigation:** Always activate the conda environment explicitly (`conda activate bravos` or `source ~/miniconda3/bin/activate bravos`) in all systemd service files and startup scripts. Use `ExecStart=/home/ubuntu/miniconda3/bin/python3 script.py` (or the conda env's python) in service files rather than relying on `python3`.
 
-**Warning sign:** `import ibapi` fails outside the venv; different Python version printed by `python3 --version` vs `python3.11 --version`.
+**Warning sign:** `import ibapi` fails; `python --version` shows system Python rather than 3.13.x.
+
+~~**Note:** Deadsnakes PPA / venv approach superseded by miniconda3.~~
 
 ---
 
@@ -1235,13 +1294,15 @@ echo "=== Verification complete ==="
 
 **How to avoid:** Use `google-chrome-stable` from Google's official apt repo (deb package), or Chromium from a non-snap PPA.
 
-### Pitfall 2: ibapi PyPI Version (ib-py, unofficial packages)
+### Pitfall 2: ibapi PyPI Version (UPDATED — opt-trade-vm4 confirmed)
 
-**What goes wrong:** `pip install ibapi` installs a third-party package that may not match the Gateway version or may be outdated. Error 507 follows.
+**CONFIRMED (2026-05-03):** `pip install ibapi==9.81.1.post1` works correctly on opt-trade-vm4. The package at this specific version is compatible with the installed IB Gateway.
 
-**Why it happens:** The official ibapi is NOT on PyPI under the `ibapi` name. There are unofficial forks.
+**Pin the version:** Always use `pip install ibapi==9.81.1.post1` — do not `pip install ibapi` without a version pin, as future versions may introduce breaking changes.
 
-**How to avoid:** Always download from `https://interactivebrokers.github.io/` → TWS API → Python source. Never `pip install ibapi`.
+~~**Original pitfall note:** "Never use PyPI packages for ibapi"~~ — this general caution is superseded by the confirmed working version. Use the pinned version.
+
+**Remaining risk:** If IB Gateway is updated on the VM to a version incompatible with ibapi 9.81.1.post1, error 507 may appear. Check ibapi compatibility before upgrading Gateway.
 
 ### Pitfall 3: IBC Gateway Version Number in gatewaystart.sh
 
@@ -1266,33 +1327,33 @@ echo "=== Verification complete ==="
 ### Recommended Project Structure
 
 ```
-/home/bravos/
-├── venv/                     # Python 3.11 virtual environment
-├── bravos/                   # Application code (Phase 2+)
+/home/ubuntu/                  # User: ubuntu (mirrors opt-trade-vm4)
+├── miniconda3/                # Python 3.13.5 conda environment (CONFIRMED)
+├── bravos/                    # Application code (Phase 2+)
 │   ├── config/
-│   │   └── secrets_config.py # get_secret(), validate_secrets()
+│   │   └── secrets_config.py  # get_secret(), validate_secrets()
 │   └── ...
-├── alembic/                  # Database migration scripts
+├── alembic/                   # Database migration scripts
 │   ├── versions/
 │   │   └── 001_initial_schema.py
 │   └── env.py
 ├── alembic.ini
-├── requirements.txt          # Pinned dependencies
-├── requirements-dev.txt      # pytest, etc.
+├── requirements.txt           # Pinned dependencies
+├── requirements-dev.txt       # pytest, etc.
 ├── ibc/
-│   └── config.ini            # IBC config (chmod 600)
-├── start-gateway.sh          # IBC startup script (injects secrets)
-├── backup-db.sh              # pg_dump to GCS
-└── verify-all.sh             # Infrastructure verification script
+│   └── config.ini             # IBC config (chmod 600)
+├── backup-db.sh               # pg_dump to GCS
+└── verify-all.sh              # Infrastructure verification script
 ```
 
-System-level:
+System-level (CONFIRMED paths from opt-trade-vm4):
 ```
-/opt/ibc/                     # IBC installation
-~/Jts/ibgateway/<version>/    # IB Gateway installation (default)
+/opt/ibcalpha/current/         # IBC installation (CONFIRMED)
+/opt/ibgateway/                # IB Gateway installation (CONFIRMED)
+/usr/local/bin/ibgateway       # IB Gateway binary (CONFIRMED)
 /etc/systemd/system/
-├── xvfb.service
-├── ibgateway.service
+├── xvfb@99.service            # Xvfb on display :99 (CONFIRMED)
+├── ibgateway.service          # Restart=always, RestartSec=15 (CONFIRMED)
 ├── bravos-backup.service
 └── bravos-backup.timer
 ```
@@ -1305,31 +1366,33 @@ System-level:
 |--------------|------------------|--------------|--------|
 | IBController (ibcontroller) | IBC (IbcAlpha) | ~2019–2020 | IBController unmaintained; IBC required for Gateway 1016+ |
 | `--headless` Chrome flag | `--headless=new` | Chrome 112 (2023) | Old flag deprecated; new mode required for modern Chrome |
-| ibapi from unofficial PyPI | Official zip from interactivebrokers.github.io | Always | Never use PyPI packages for ibapi |
+| ibapi from official zip only | `pip install ibapi==9.81.1.post1` | Confirmed 2026-05-03 | opt-trade-vm4 uses pip; 9.81.1.post1 confirmed working |
+| IBC at /opt/ibc/ | IBC at /opt/ibcalpha/current/ | Confirmed 2026-05-03 | Actual path on opt-trade-vm4 |
+| Ubuntu 22.04 LTS | Ubuntu 24.04 LTS (Noble) | Confirmed 2026-05-03 | opt-trade-vm4 is 24.04 |
+| Python 3.11 + venv | Python 3.13.5 + miniconda3 | Confirmed 2026-05-03 | opt-trade-vm4 uses miniconda3 |
 
 ---
 
 ## Open Questions
 
-1. **opt-trade-vm4 Ubuntu version**
-   - What we know: D-04 says "Ubuntu LTS — mirror opt-trade-vm4"
-   - What's unclear: Is it 20.04 or 22.04?
-   - Recommendation: SSH into opt-trade-vm4 and run `lsb_release -a` as the first Wave 0 task. This determines the OS choice for bravos_vm1.
+**All questions resolved by opt-trade-vm4 investigation (2026-05-03).**
 
-2. **opt-trade-vm4 IBC + IB Gateway versions**
-   - What we know: bravos_vm1 should mirror these exactly
-   - What's unclear: Current installed versions
-   - Recommendation: Run `ls ~/Jts/ibgateway/` and check `/opt/ibc/` on opt-trade-vm4 before writing IBC install tasks.
+1. **opt-trade-vm4 Ubuntu version** — RESOLVED
+   - **Answer:** Ubuntu 24.04 LTS (Noble)
+   - **Impact:** Use `ubuntu-2404-lts-amd64` image for bravos_vm1
 
-3. **IBC config.ini credential injection approach**
-   - What we know: Credentials must not live on disk permanently; GCP Secret Manager is the source
-   - What's unclear: The safest pattern — inject at startup via `sed` (leaves plaintext briefly), or use environment variable substitution IBC supports
-   - Recommendation: `sed` injection is the established pattern; clear the config after Gateway confirms startup. Investigate if IBC supports environment variable substitution in config.ini (check IBC docs at github.com/IbcAlpha/IBC/blob/master/userguide.md).
+2. **opt-trade-vm4 IBC + IB Gateway versions** — RESOLVED
+   - **Answer:** IBC (IbcAlpha) at `/opt/ibcalpha/current/`; IB Gateway at `/opt/ibgateway/` with binary at `/usr/local/bin/ibgateway`
+   - **Impact:** Install paths confirmed; ibapi version 9.81.1.post1 (pip) confirmed working
 
-4. **ibgateway.service Restart policy during 2FA**
-   - What we know: Operator must approve 2FA push; if restart happens before approval, Gateway fails to start
-   - What's unclear: Should the service be `Restart=no` (manual start only) or `Restart=on-failure` with limits?
-   - Recommendation: `Restart=no` for the ibgateway.service; operator manually starts it via `systemctl start ibgateway` at the start of each trading day. This is safer than auto-restart loops during 2FA.
+3. **IBC config.ini credential injection approach** — DEFERRED to plan 01-02
+   - Still unconfirmed: exact credential injection mechanism used on opt-trade-vm4
+   - The `sed` injection pattern remains the recommended approach; will confirm during 01-02 execution
+
+4. **ibgateway.service Restart policy during 2FA** — RESOLVED
+   - **Answer:** opt-trade-vm4 uses `Restart=always, RestartSec=15`
+   - **Impact:** Mirror opt-trade-vm4 — use `Restart=always, RestartSec=15` (not `Restart=no` as originally recommended)
+   - **Rationale:** The 2FA retry mechanism in IBC (`ReloginAfterSecondFactorAuthenticationTimeout=yes`) handles the restart-before-approval case
 
 ---
 
@@ -1347,11 +1410,13 @@ System-level:
 - IBC release note: 3.14.0 required for Gateway 1016+ with IBKR Mobile 2FA
 - [Google Cloud Secret Manager Python](https://cloud.google.com/secret-manager/docs/reference/libraries) — access_secret_version API
 
-### Tertiary (LOW confidence — verify on opt-trade-vm4)
-- IB Gateway stable download URL: `https://download2.interactivebrokers.com/installers/ibgateway/stable-standalone/ibgateway-stable-standalone-linux-x64.sh`
-- Current stable IB Gateway version: ~10.30.x (build 1030) — verify against opt-trade-vm4
-- IB Gateway install default path: `~/Jts/ibgateway/<version>/` — verify on opt-trade-vm4
-- [Ubuntu 22.04 Chromium snap issue](https://github.com/SeleniumHQ/selenium/issues/10969) — ChromeDriver fails when Chromium installed as snap
+### Tertiary (CONFIRMED — verified against opt-trade-vm4 2026-05-03)
+- IB Gateway install path: `/opt/ibgateway/` (binary at `/usr/local/bin/ibgateway`) — CONFIRMED
+- ibapi version: 9.81.1.post1 via pip — CONFIRMED
+- IBC path: `/opt/ibcalpha/current/` — CONFIRMED
+- Xvfb display: `:99` (xvfb@99.service) — CONFIRMED
+- Chrome: google-chrome-stable 139.0.7258.66 (deb, not snap) — CONFIRMED
+- [Ubuntu 22.04 Chromium snap issue](https://github.com/SeleniumHQ/selenium/issues/10969) — Not applicable; opt-trade-vm4/bravos_vm1 use google-chrome-stable
 
 ---
 
@@ -1360,9 +1425,13 @@ System-level:
 **Confidence breakdown:**
 - PostgreSQL schema: HIGH — derived from project requirements; schema design follows standard patterns
 - Python packages (versions): HIGH — verified via pip index on 2026-05-03
-- IBC setup (steps, config): MEDIUM — sourced from official IBC repo; exact versions depend on opt-trade-vm4 investigation
-- IB Gateway install: LOW-MEDIUM — download URL and install path are standard but version must be confirmed against opt-trade-vm4
-- Chromium snap issue: HIGH — confirmed by Selenium GitHub issue tracker
+- IBC setup (steps, config, paths): HIGH — confirmed against opt-trade-vm4 on 2026-05-03
+- IB Gateway install path: HIGH — confirmed `/opt/ibgateway/` on opt-trade-vm4
+- ibapi installation: HIGH — confirmed `pip install ibapi==9.81.1.post1` on opt-trade-vm4
+- Ubuntu version: HIGH — confirmed Ubuntu 24.04 LTS (Noble) on opt-trade-vm4
+- Python environment: HIGH — confirmed miniconda3 + Python 3.13.5 on opt-trade-vm4
+- Chrome: HIGH — confirmed google-chrome-stable 139.0.7258.66 on opt-trade-vm4
 
 **Research date:** 2026-05-03
-**Valid until:** 2026-06-03 (package versions; IBC/Gateway versions stable unless Gateway update released)
+**Updated:** 2026-05-03 (opt-trade-vm4 investigation)
+**Valid until:** 2026-08-03 (package versions; IBC/Gateway versions stable unless Gateway update released)
