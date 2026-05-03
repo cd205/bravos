@@ -68,11 +68,11 @@
 
 ### Deployment
 
-- [ ] **DEPL-01**: System runs on a GCP VM (Linux) with IB Gateway installed; IB Gateway runs persistently with 2FA handled at operator startup only
+- [x] **DEPL-01**: System runs on a GCP VM (Linux) with IB Gateway installed; IB Gateway runs persistently with 2FA handled at operator startup only
 - [ ] **DEPL-02**: Trading process and dashboard are managed as separate systemd services with auto-restart on failure
-- [ ] **DEPL-03**: PostgreSQL is installed on the VM with the trading schema (signals, orders, position_lots, executions, broker_positions_snapshot)
-- [ ] **DEPL-04**: Bravos Research credentials and IBKR configuration are stored in GCP Secret Manager or environment variables — never in code or committed files
-- [ ] **DEPL-05**: Chromium runs in headless mode for Selenium scraping with appropriate anti-detection flags
+- [x] **DEPL-03**: PostgreSQL is installed on the VM with the trading schema (signals, orders, position_lots, executions, broker_positions_snapshot)
+- [x] **DEPL-04**: Bravos Research credentials and IBKR configuration are stored in GCP Secret Manager or environment variables — never in code or committed files
+- [x] **DEPL-05**: Chromium runs in headless mode for Selenium scraping with appropriate anti-detection flags
 
 ## v2 Requirements
 
@@ -115,10 +115,10 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DEPL-01 | Phase 1 | Pending |
-| DEPL-03 | Phase 1 | Pending |
-| DEPL-04 | Phase 1 | Pending |
-| DEPL-05 | Phase 1 | Pending |
+| DEPL-01 | Phase 1 | Complete |
+| DEPL-03 | Phase 1 | Complete |
+| DEPL-04 | Phase 1 | Complete |
+| DEPL-05 | Phase 1 | Complete |
 | INGST-01 | Phase 2 | Pending |
 | INGST-02 | Phase 2 | Pending |
 | INGST-03 | Phase 2 | Pending |

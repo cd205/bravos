@@ -122,7 +122,7 @@ Note: Phase 3 depends on Phase 1 only (not Phase 2), and can be developed in par
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Infrastructure Setup | 0/TBD | Not started | - |
+| 1. Infrastructure Setup | 1/7 | In Progress|  |
 | 2. Signal Ingestion | 0/TBD | Not started | - |
 | 3. IBKR Connection | 0/TBD | Not started | - |
 | 4. Risk Controls and Order Execution | 0/TBD | Not started | - |

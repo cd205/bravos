@@ -2,16 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 1 context gathered
-last_updated: "2026-05-02T05:50:56.444Z"
-last_activity: 2026-05-02 — Roadmap created (7 phases, 42 requirements mapped)
+status: unknown
+stopped_at: "Checkpoint: 01-01 Task 2 — awaiting operator to provision bravos_vm1 and investigate opt-trade-vm4"
+last_updated: "2026-05-03T06:30:30.061Z"
 progress:
   total_phases: 8
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 7
+  completed_plans: 1
 ---
 
 # Project State
@@ -21,16 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** When a new trade alert is posted on Bravos Research, the correct order is placed in IBKR within minutes — without manual intervention.
-**Current focus:** Phase 1: Signal Ingestion
+**Current focus:** Phase 01 — Infrastructure Setup
 
 ## Current Position
 
-Phase: 1 of 7 (Signal Ingestion)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-05-02 — Roadmap created (7 phases, 42 requirements mapped)
-
-Progress: [░░░░░░░░░░] 0%
+Phase: 01 (Infrastructure Setup) — EXECUTING
+Plan: 2 of 7
 
 ## Performance Metrics
 
@@ -52,6 +46,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 01 P01 | 2min | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -61,6 +56,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
 - No decisions logged yet. See PROJECT.md Key Decisions.
+- [Phase 01]: Wave 0 test stubs written with full bodies inside @pytest.mark.skip — future plans remove decorator, not rewrite test
 
 ### Pending Todos
 
@@ -74,6 +70,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-02T05:50:56.440Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-infrastructure-setup/01-CONTEXT.md
+Last session: 2026-05-03T06:30:30.058Z
+Stopped at: Checkpoint: 01-01 Task 2 — awaiting operator to provision bravos_vm1 and investigate opt-trade-vm4
+Resume file: None
