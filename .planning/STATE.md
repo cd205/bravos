@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: "Checkpoint: 01-01 Task 2 — awaiting operator to provision bravos_vm1 and investigate opt-trade-vm4"
-last_updated: "2026-05-03T06:30:30.061Z"
+stopped_at: Completed 01-01-PLAN.md — test scaffold + opt-trade-vm4 investigation documented
+last_updated: "2026-05-03T07:06:20.961Z"
 progress:
   total_phases: 8
   completed_phases: 0
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-05-01)
 ## Current Position
 
 Phase: 01 (Infrastructure Setup) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ Plan: 2 of 7
 
 *Updated after each plan completion*
 | Phase 01 P01 | 2min | 1 tasks | 4 files |
+| Phase 01 P01 | 45 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -57,6 +58,10 @@ Recent decisions affecting current work:
 
 - No decisions logged yet. See PROJECT.md Key Decisions.
 - [Phase 01]: Wave 0 test stubs written with full bodies inside @pytest.mark.skip — future plans remove decorator, not rewrite test
+- [Phase 01]: DEV-01: Python 3.13.5 + miniconda3 (not 3.11+venv) — mirrors opt-trade-vm4 exactly
+- [Phase 01]: DEV-02: pip install ibapi==9.81.1.post1 (not official zip) — mirrors opt-trade-vm4
+- [Phase 01]: DEV-03: Ubuntu 24.04 LTS Noble — use ubuntu-2404-lts-amd64 image for bravos_vm1
+- [Phase 01]: DEV-04: ibgateway.service Restart=always,RestartSec=15 — mirrors opt-trade-vm4
 
 ### Pending Todos
 
@@ -70,6 +75,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-03T06:30:30.058Z
-Stopped at: Checkpoint: 01-01 Task 2 — awaiting operator to provision bravos_vm1 and investigate opt-trade-vm4
+Last session: 2026-05-03T07:06:20.958Z
+Stopped at: Completed 01-01-PLAN.md — test scaffold + opt-trade-vm4 investigation documented
 Resume file: None
