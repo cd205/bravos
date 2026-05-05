@@ -76,8 +76,7 @@ gcloud compute instances create bravos-vm1 \
   --boot-disk-type=pd-ssd \
   --image-family=ubuntu-2404-lts-amd64 \
   --image-project=ubuntu-os-cloud \
-  --zone=us-east1-b \
-  --service-account="${SA_EMAIL}" \
+  --zone=us-central1-a \
   --scopes=https://www.googleapis.com/auth/cloud-platform
 ```
 
