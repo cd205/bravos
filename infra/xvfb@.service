@@ -1,0 +1,12 @@
+[Unit]
+Description=Virtual X framebuffer service (display %i)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/Xvfb :%i -screen 0 1024x768x24
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
