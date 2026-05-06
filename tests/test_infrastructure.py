@@ -44,7 +44,7 @@ def test_vm_ssh_accessible():
             "compute",
             "ssh",
             "bravos-vm1",
-            "--zone=us-east1-b",
+            "--zone=us-central1-a",
             "--command=echo ok",
         ],
         capture_output=True,
@@ -295,7 +295,6 @@ def test_chrome_headless_launch(chrome_options):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="ibapi not yet installed")
 def test_ibapi_import():
     """
     Verify that ibapi (official IB TWS API) is importable from the venv.
@@ -312,17 +311,14 @@ def test_ibapi_import():
     assert True, "ibapi imports succeeded"
 
 
-@pytest.mark.skip(reason="Venv not yet created")
 def test_python_version():
     """
-    Verify the Python interpreter running this test is Python 3.11.
+    Verify the Python interpreter running this test is Python 3.13.
 
-    Per decision D-12, the project venv must use Python 3.11 (not 3.10 or 3.12).
-    This test is skipped until the venv is created; it validates the venv's
-    Python version when unskipped and run inside the venv.
+    Per DEV-01 (mirrors opt-trade-vm4), the project uses Python 3.13 + miniconda3.
     """
     major, minor = sys.version_info[:2]
-    assert (major, minor) == (3, 11), (
-        f"Expected Python 3.11, but running under Python {major}.{minor}.\n"
-        "Ensure the venv was created with python3.11 and pytest is run from within it."
+    assert (major, minor) == (3, 13), (
+        f"Expected Python 3.13, but running under Python {major}.{minor}.\n"
+        "Ensure miniconda3 Python 3.13 is active."
     )
