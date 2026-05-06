@@ -93,7 +93,6 @@ def test_gateway_port_reachable():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="PostgreSQL not yet installed")
 def test_schema_tables_exist(db_connection):
     """
     DEPL-03: All 5 required trading tables must exist in the bravos_trading database.
@@ -133,7 +132,6 @@ def test_schema_tables_exist(db_connection):
     )
 
 
-@pytest.mark.skip(reason="PostgreSQL not yet installed")
 def test_schema_dedup_constraint(db_connection):
     """
     DEPL-03: The signals table must enforce uniqueness on post_url.

@@ -1,0 +1,17 @@
+[Unit]
+Description=Cloud SQL Auth Proxy
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/chris_s_dodd/cloud-sql-proxy \
+  crafty-water-453519-d7:us-central1:bravos-db \
+  --port=5432
+Restart=always
+RestartSec=5
+User=chris_s_dodd
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

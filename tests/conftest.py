@@ -23,7 +23,8 @@ def db_connection():
 
     password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
     conn = psycopg2.connect(
-        host="localhost",
+        host="127.0.0.1",
+        port=5432,  # Cloud SQL Auth Proxy listens here
         dbname="bravos_trading",
         user="bravos",
         password=password,
