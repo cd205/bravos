@@ -251,7 +251,6 @@ def test_secrets_readable():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="Chrome not yet installed")
 def test_chrome_headless_launch(chrome_options):
     """
     DEPL-05: Headless Chrome must launch and successfully load a URL.
