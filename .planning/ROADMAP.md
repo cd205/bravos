@@ -12,7 +12,7 @@ Eight phases build the system bottom-up along its critical dependency chain: fir
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Infrastructure Setup** - GCP VM provisioning (bravos_vm1), IB Gateway install, Python env, Chrome headless, PostgreSQL install + schema, secrets management
+- [x] **Phase 1: Infrastructure Setup** - GCP VM provisioning (bravos_vm1), IB Gateway install, Python env, Chrome headless, PostgreSQL install + schema, secrets management
 - [ ] **Phase 2: Signal Ingestion** - Selenium scraper, alert parser, and full audit trail stored in PostgreSQL
 - [ ] **Phase 3: IBKR Connection** - Persistent IB Gateway connection with heartbeat, reconnect, and startup reconciliation
 - [ ] **Phase 4: Risk Controls and Order Execution** - Single synchronous risk gate, order size calculator, and market-order submission
@@ -122,7 +122,7 @@ Note: Phase 3 depends on Phase 1 only (not Phase 2), and can be developed in par
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Infrastructure Setup | 1/7 | In Progress|  |
+| 1. Infrastructure Setup | 7/7 | Done | 2026-05-07 |
 | 2. Signal Ingestion | 0/TBD | Not started | - |
 | 3. IBKR Connection | 0/TBD | Not started | - |
 | 4. Risk Controls and Order Execution | 0/TBD | Not started | - |
