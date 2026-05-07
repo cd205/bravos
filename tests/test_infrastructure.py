@@ -213,7 +213,8 @@ def test_secrets_readable():
         "bravos-site-password",
         "bravos-ibkr-username",
         "bravos-ibkr-password",
-        "bravos-ibkr-account-id",
+        "bravos-ibkr-port",
+        "bravos-ibkr-clientid",
         "bravos-db-password",
     ]
 
