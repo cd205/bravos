@@ -192,7 +192,6 @@ def test_schema_dedup_constraint(db_connection):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason="Secrets not yet created")
 def test_secrets_readable():
     """
     DEPL-04: All 6 required secrets must be accessible from GCP Secret Manager.
