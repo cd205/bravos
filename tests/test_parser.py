@@ -11,7 +11,6 @@ Requirement coverage:
 import pytest
 
 
-@pytest.mark.skip(reason="Parser not yet implemented (plan 02-02)")
 def test_extract_ticker():
     from bravos.ingestion.parser import parse_signal
     result = parse_signal(
@@ -21,7 +20,6 @@ def test_extract_ticker():
     assert result["ticker"] == "EME"
 
 
-@pytest.mark.skip(reason="Parser not yet implemented (plan 02-02)")
 def test_extract_action_type_open():
     from bravos.ingestion.parser import parse_signal
     result = parse_signal(
@@ -31,7 +29,6 @@ def test_extract_action_type_open():
     assert result["action_type"] == "open"
 
 
-@pytest.mark.skip(reason="Parser not yet implemented (plan 02-02)")
 def test_extract_action_type_partial_close():
     from bravos.ingestion.parser import parse_signal
     result = parse_signal(
@@ -41,7 +38,6 @@ def test_extract_action_type_partial_close():
     assert result["action_type"] == "partial_close"
 
 
-@pytest.mark.skip(reason="Parser not yet implemented (plan 02-02)")
 def test_extract_action_type_close():
     from bravos.ingestion.parser import parse_signal
     result = parse_signal(
@@ -51,7 +47,6 @@ def test_extract_action_type_close():
     assert result["action_type"] == "close"
 
 
-@pytest.mark.skip(reason="Parser not yet implemented (plan 02-02)")
 def test_extract_weight():
     from bravos.ingestion.parser import parse_signal
     result = parse_signal(
@@ -62,7 +57,6 @@ def test_extract_weight():
     assert result["weight_to"] == 5
 
 
-@pytest.mark.skip(reason="Parser not yet implemented (plan 02-02)")
 def test_extract_price():
     from bravos.ingestion.parser import parse_signal
     result = parse_signal(
@@ -72,25 +66,21 @@ def test_extract_price():
     assert result["reference_price"] == 42.50
 
 
-@pytest.mark.skip(reason="Parser not yet implemented (plan 02-02)")
 def test_confidence_high():
     from bravos.ingestion.parser import score_confidence
     assert score_confidence("EME", "open", 0, 5) == "high"
 
 
-@pytest.mark.skip(reason="Parser not yet implemented (plan 02-02)")
 def test_confidence_medium():
     from bravos.ingestion.parser import score_confidence
     assert score_confidence("META", "partial_close", None, None) == "medium"
 
 
-@pytest.mark.skip(reason="Parser not yet implemented (plan 02-02)")
 def test_confidence_low():
     from bravos.ingestion.parser import score_confidence
     assert score_confidence(None, None, None, None) == "low"
 
 
-@pytest.mark.skip(reason="Parser not yet implemented (plan 02-02)")
 def test_multi_ticker_forces_low_confidence():
     from bravos.ingestion.parser import parse_signal
     result = parse_signal(
@@ -100,7 +90,6 @@ def test_multi_ticker_forces_low_confidence():
     assert result["confidence"] == "low"
 
 
-@pytest.mark.skip(reason="Parser not yet implemented (plan 02-02)")
 def test_weight_direction_cross_check():
     from bravos.ingestion.parser import parse_signal
     result = parse_signal(
@@ -112,7 +101,6 @@ def test_weight_direction_cross_check():
     assert result["weight_to"] == 6
 
 
-@pytest.mark.skip(reason="Parser not yet implemented (plan 02-02)")
 def test_spacy_fallback():
     from bravos.ingestion.parser import parse_signal
     result = parse_signal(
