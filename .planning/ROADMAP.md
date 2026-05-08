@@ -45,7 +45,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Low-confidence parses are marked with a flag and are not forwarded to any execution path
   4. If the session expires mid-day, the system detects it and re-authenticates rather than silently returning zero new posts
   5. Every signal can be traced end-to-end through the database: raw post → parsed fields → parse status, with all records immutable (append-only)
-**Plans**: TBD
+**Plans**: 5 plans
+Plans:
+- [ ] 02-01-PLAN.md — Schema migration + package scaffold + Wave 0 test stubs
+- [ ] 02-02-PLAN.md — Parser module (TDD: regex extraction, action keywords, confidence scoring)
+- [ ] 02-03-PLAN.md — Scraper module (BravosScraper class + selector discovery)
+- [ ] 02-04-PLAN.md — DB integration tests (dedup, raw_html, audit fields)
+- [ ] 02-05-PLAN.md — Daemon entry point + end-to-end integration validation
 
 ### Phase 3: IBKR Connection
 **Goal**: A persistent, self-healing IBKR connection thread is running that survives CLOSE-WAIT stalls and Gateway restarts, reconciles open positions and orders on startup, and supports both paper and live account configuration
@@ -123,7 +129,7 @@ Note: Phase 3 depends on Phase 1 only (not Phase 2), and can be developed in par
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Infrastructure Setup | 7/7 | Done | 2026-05-07 |
-| 2. Signal Ingestion | 0/TBD | Not started | - |
+| 2. Signal Ingestion | 0/5 | Not started | - |
 | 3. IBKR Connection | 0/TBD | Not started | - |
 | 4. Risk Controls and Order Execution | 0/TBD | Not started | - |
 | 5. Fill Capture and Position Reconciliation | 0/TBD | Not started | - |
