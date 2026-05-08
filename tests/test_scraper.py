@@ -4,8 +4,8 @@ Tests for bravos.ingestion.scraper.
 Tests use mock WebDriver — no live browser or site needed.
 
 Requirement coverage:
-  INGST-01 -> test_startup_loads_credentials, test_login_calls_automated_login
-  INGST-02 -> test_get_recent_posts_returns_list
+  INGST-01 -> test_startup_loads_credentials
+  INGST-02 -> test_fetch_post_returns_title_and_body
   INGST-07 -> test_session_expiry_detected, test_session_valid, test_reauth_on_expiry
   AUDIT-06 -> test_no_update_on_duplicate
 """
@@ -48,29 +48,34 @@ def test_reauth_on_expiry():
     s.driver = MagicMock()
     s.username = "user"
     s.password = "pass"
-    # First call: session expired; login succeeds
-    s.driver.find_elements.return_value = [MagicMock()]
+    # Session expired (visible login field present); login succeeds; fetch_post called
+    mock_field = MagicMock()
+    mock_field.is_displayed.return_value = True
+    s.driver.find_elements.return_value = [mock_field]
     with patch.object(s, "_login", return_value=True) as mock_login:
-        with patch.object(s, "_get_recent_posts", return_value=[]):
-            s.run_cycle()
+        with patch.object(s, "fetch_post", return_value={"title": "", "url": "https://x.com/p/", "raw_html": "", "text": ""}):
+            with patch.object(s, "_store_signal"):
+                with patch("bravos.ingestion.scraper.parse_signal", return_value={}):
+                    s.process_alert("https://x.com/p/")
     mock_login.assert_called_once()
 
 
-def test_get_recent_posts_returns_list():
+def test_fetch_post_returns_title_and_body():
     from bravos.ingestion.scraper import BravosScraper
     s = BravosScraper()
     s.driver = MagicMock()
-    # Mock WebDriverWait and article elements
+    mock_article = MagicMock()
+    mock_article.text = "Initiating Long on $EME\nTrade Alert\nBody text here"
+    mock_body = MagicMock()
+    mock_body.get_attribute.return_value = "<p>Body</p>"
+    mock_body.text = "Body text here"
     with patch("bravos.ingestion.scraper.WebDriverWait"):
-        mock_article = MagicMock()
-        mock_link = MagicMock()
-        mock_link.text = "Initiating Long on $EME"
-        mock_link.get_attribute.return_value = "https://bravosresearch.com/portfolio-update/eme-post/"
-        mock_article.find_element.return_value = mock_link
         s.driver.find_elements.return_value = [mock_article]
-        posts = s._get_recent_posts()
-    assert len(posts) == 1
-    assert posts[0]["url"] == "https://bravosresearch.com/portfolio-update/eme-post/"
+        s.driver.find_element.return_value = mock_body
+        result = s.fetch_post("https://bravosresearch.com/news-feed/eme-post/")
+    assert result["url"] == "https://bravosresearch.com/news-feed/eme-post/"
+    assert result["title"] == "Initiating Long on $EME"
+    assert result["text"] == "Body text here"
 
 
 def test_no_update_on_duplicate():

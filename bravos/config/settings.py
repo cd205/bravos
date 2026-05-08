@@ -20,17 +20,17 @@ BRAVOS_BASE_URL = "https://bravosresearch.com"
 # Trading
 TRADING_MODE = os.environ.get("TRADING_MODE", "paper")  # "paper" or "live"
 
-# Scraping — category and selectors
-TRADE_ALERT_CATEGORY_URL = f"{BRAVOS_BASE_URL}/category/portfolio-update/"
+# Scraping — URLs and selectors (confirmed via selector discovery 2026-05-08)
 LOGIN_URL = f"{BRAVOS_BASE_URL}/my-account/"
-# WordPress selectors — confirmed via selector discovery or updated at first run
-ARTICLE_SELECTOR = "article"
-ARTICLE_LINK_SELECTOR = "h2 a, h1 a"
-POST_BODY_SELECTOR = ".entry-content, .post-content, article .content"
-# WooCommerce login field names (confirmed via selector discovery 2026-05-08)
-LOGIN_USERNAME_FIELD = "username"
-LOGIN_PASSWORD_FIELD = "password"
+# Post body selector confirmed against live post page
+POST_BODY_SELECTOR = ".entry-content"
+# WooCommerce login: use ID selectors (page has duplicate name= fields; first is hidden)
+LOGIN_USERNAME_ID = "username"
+LOGIN_PASSWORD_ID = "password"
 LOGIN_SUBMIT_XPATH = "//button[@type='submit'] | //input[@type='submit']"
+# Gmail poller filter
+GMAIL_SENDER_FILTER = "from:bravosresearch.com"
+GMAIL_SUBJECT_KEYWORD = "New Trade Alert"
 # Scraping limits
 POSTS_PER_CYCLE = 10
 MAX_REAUTH_ATTEMPTS = 3

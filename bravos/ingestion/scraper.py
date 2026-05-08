@@ -98,35 +98,60 @@ class BravosScraper:
         logger.info("BravosScraper started — driver active, logged in")
 
     def _login(self, attempt: int = 0) -> bool:
-        """Login with 3-attempt retry (per D-04). Returns True on success."""
+        """Login with 3-attempt retry (per D-04). Returns True on success.
+
+        Uses By.ID with visible-element filtering because the page has duplicate
+        username/password fields (one hidden in nav, one visible in the form).
+        """
         for i in range(settings.MAX_REAUTH_ATTEMPTS):
             try:
                 self.driver.get(settings.LOGIN_URL)
                 time.sleep(2)
-                wait = WebDriverWait(self.driver, 10)
-                username_field = wait.until(
-                    EC.presence_of_element_located((By.NAME, settings.LOGIN_USERNAME_FIELD))
+
+                # Find visible username/password fields (page has duplicates; first is hidden)
+                username_field = next(
+                    (f for f in self.driver.find_elements(By.ID, settings.LOGIN_USERNAME_ID)
+                     if f.is_displayed()),
+                    None
                 )
-                password_field = self.driver.find_element(By.NAME, settings.LOGIN_PASSWORD_FIELD)
+                password_field = next(
+                    (f for f in self.driver.find_elements(By.ID, settings.LOGIN_PASSWORD_ID)
+                     if f.is_displayed()),
+                    None
+                )
+                if not username_field or not password_field:
+                    logger.warning("Login attempt %d: could not find visible login fields", i + 1)
+                    time.sleep(2)
+                    continue
+
                 username_field.clear()
                 username_field.send_keys(self.username)
                 password_field.clear()
                 password_field.send_keys(self.password)
 
-                btn = wait.until(EC.element_to_be_clickable((By.XPATH, settings.LOGIN_SUBMIT_XPATH)))
-                self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
-                time.sleep(0.5)
+                # Click first visible submit button
+                btn = next(
+                    (b for b in self.driver.find_elements(By.XPATH, settings.LOGIN_SUBMIT_XPATH)
+                     if b.is_displayed()),
+                    None
+                )
+                if not btn:
+                    logger.warning("Login attempt %d: no visible submit button", i + 1)
+                    time.sleep(2)
+                    continue
+
                 try:
                     btn.click()
                 except Exception:
                     self.driver.execute_script("arguments[0].click();", btn)
                 time.sleep(3)
 
-                # Success check: login field gone
-                if not self.driver.find_elements(By.NAME, settings.LOGIN_USERNAME_FIELD):
+                # Success: no visible login field remains, or URL redirected away from login
+                visible_login = [f for f in self.driver.find_elements(By.ID, settings.LOGIN_USERNAME_ID)
+                                  if f.is_displayed()]
+                if not visible_login:
                     logger.info("Login succeeded on attempt %d", i + 1)
                     return True
-                # Also check URL — may have redirected away from login
                 if "wp-login" not in self.driver.current_url and "my-account" not in self.driver.current_url:
                     logger.info("Login succeeded (URL redirect) on attempt %d", i + 1)
                     return True
@@ -137,66 +162,45 @@ class BravosScraper:
         return False
 
     def _check_session(self) -> bool:
-        """Return True if session is valid; False if login form detected (per D-02)."""
+        """Return True if session is valid; False if visible login form detected (per D-02)."""
         try:
-            login_forms = self.driver.find_elements(By.NAME, settings.LOGIN_USERNAME_FIELD)
-            if login_forms:
-                return False
-            if "wp-login" in self.driver.current_url or "my-account" in self.driver.current_url:
-                # Check if we were redirected to login page
-                login_forms = self.driver.find_elements(By.NAME, settings.LOGIN_USERNAME_FIELD)
-                if login_forms:
-                    return False
-            return True
+            visible_login = [f for f in self.driver.find_elements(By.ID, settings.LOGIN_USERNAME_ID)
+                              if f.is_displayed()]
+            return not visible_login
         except WebDriverException:
             logger.error("WebDriverException during session check — driver may have crashed")
             return False
 
-    def _get_recent_posts(self, limit: int = None) -> list:
-        """Scrape the category page for recent Trade Alert posts (per D-06, D-07).
+    def fetch_post(self, url: str) -> dict:
+        """Navigate to a post URL and return title + body text.
 
-        Returns list of dicts with keys: title, url.
+        Called by the Gmail poller with the URL extracted from the notification email.
+        Returns dict with keys: title, url, raw_html, text.
         """
-        if limit is None:
-            limit = settings.POSTS_PER_CYCLE
-        try:
-            self.driver.get(settings.TRADE_ALERT_CATEGORY_URL)
-            wait = WebDriverWait(self.driver, 15)
-            wait.until(EC.presence_of_element_located((By.TAG_NAME, "article")))
-        except TimeoutException:
-            logger.warning("Timeout waiting for articles on category page")
-            return []
-
-        articles = self.driver.find_elements(By.CSS_SELECTOR, settings.ARTICLE_SELECTOR)[:limit]
-        posts = []
-        for article in articles:
-            try:
-                link = article.find_element(By.CSS_SELECTOR, settings.ARTICLE_LINK_SELECTOR)
-                posts.append({
-                    "title": link.text.strip(),
-                    "url": link.get_attribute("href"),
-                })
-            except NoSuchElementException:
-                continue
-        logger.info("Found %d posts on category page", len(posts))
-        return posts
-
-    def _get_post_content(self, url: str) -> dict:
-        """Navigate to a post URL and extract the full body HTML."""
         self.driver.get(url)
         try:
             wait = WebDriverWait(self.driver, 15)
             wait.until(EC.presence_of_element_located(
                 (By.CSS_SELECTOR, settings.POST_BODY_SELECTOR)
             ))
-            body_el = self.driver.find_element(By.CSS_SELECTOR, settings.POST_BODY_SELECTOR)
-            return {
-                "raw_html": body_el.get_attribute("innerHTML"),
-                "text": body_el.text,
-            }
-        except (TimeoutException, NoSuchElementException):
-            logger.warning("Could not extract body from %s", url)
-            return {"raw_html": "", "text": ""}
+        except TimeoutException:
+            logger.warning("Timeout waiting for post body at %s", url)
+            return {"title": "", "url": url, "raw_html": "", "text": ""}
+
+        # Title from article tag (includes post title before the body content)
+        title = ""
+        article_els = self.driver.find_elements(By.CSS_SELECTOR, "article")
+        if article_els:
+            # First line of article text is the post title
+            title = article_els[0].text.split("\n")[0].strip()
+
+        body_el = self.driver.find_element(By.CSS_SELECTOR, settings.POST_BODY_SELECTOR)
+        return {
+            "title": title,
+            "url": url,
+            "raw_html": body_el.get_attribute("innerHTML"),
+            "text": body_el.text,
+        }
 
     def _store_signal(self, signal_data: dict):
         """Insert signal into DB. ON CONFLICT DO NOTHING for dedup (per D-05, AUDIT-06)."""
@@ -233,35 +237,28 @@ class BravosScraper:
             conn.close()
 
     @catch_cycle_exceptions
-    def run_cycle(self):
-        """Single 5-minute cycle: check session, scrape, parse, store (per D-13)."""
+    def process_alert(self, url: str):
+        """Fetch a post URL, parse, and store. Called by the Gmail poller per alert email.
+
+        Ensures session is valid before fetching. Dedup handled by DB ON CONFLICT.
+        """
         if not self._check_session():
             logger.warning("Session expired — re-authenticating (per D-03)")
             if not self._login():
-                logger.critical("Re-auth failed after %d attempts — skipping cycle (per D-04)", settings.MAX_REAUTH_ATTEMPTS)
+                logger.critical("Re-auth failed after %d attempts — skipping alert", settings.MAX_REAUTH_ATTEMPTS)
                 return
 
-        posts = self._get_recent_posts()
-        if not posts:
-            logger.warning("0 posts returned — site unreachable or empty (per D-08)")
-            return
-
-        for post in posts:
-            self._process_post(post)
-
-    def _process_post(self, post: dict):
-        """Fetch body, parse, store. Dedup handled by DB constraint."""
-        content = self._get_post_content(post["url"])
-        parsed = parse_signal(post["title"], content["text"])
+        content = self.fetch_post(url)
+        parsed = parse_signal(content["title"], content["text"])
         signal_data = {
-            "post_url": post["url"],
-            "post_title": post["title"],
+            "post_url": url,
+            "post_title": content["title"],
             "raw_html": content["raw_html"],
             **parsed,
         }
         self._store_signal(signal_data)
         logger.info("Processed: %s -> ticker=%s action=%s confidence=%s",
-                     post["title"][:60], parsed.get("ticker"),
+                     content["title"][:60], parsed.get("ticker"),
                      parsed.get("action_type"), parsed.get("confidence"))
 
     def shutdown(self):
