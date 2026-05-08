@@ -12,7 +12,7 @@
 - [ ] **INGST-03**: System deduplicates signals by post URL — a post already processed is never re-processed regardless of site edits
 - [ ] **INGST-04**: System extracts from each new Trade Alert post: ticker symbol, action type (open/add/partial-close/close), weight change (old weight → new weight), and reference price
 - [ ] **INGST-05**: System assigns a confidence score to each parsed signal; low-confidence parses are flagged and not routed to order execution
-- [ ] **INGST-06**: Every scraped signal is stored verbatim (raw HTML + structured fields) in the database with a parse status, regardless of whether an order is placed
+- [x] **INGST-06**: Every scraped signal is stored verbatim (raw HTML + structured fields) in the database with a parse status, regardless of whether an order is placed
 - [ ] **INGST-07**: System detects and re-authenticates when a session expires (i.e. confirms logged-in state after each scrape cycle, not just at startup)
 
 ### Order Execution
@@ -41,7 +41,7 @@
 
 ### Audit Trail
 
-- [ ] **AUDIT-01**: Every system action (scrape, parse, risk check, order submission, fill, position open/close/reduce) is recorded in the database with a timestamp, actor (system/automated), and outcome — no action is silent
+- [x] **AUDIT-01**: Every system action (scrape, parse, risk check, order submission, fill, position open/close/reduce) is recorded in the database with a timestamp, actor (system/automated), and outcome — no action is silent
 - [ ] **AUDIT-02**: Each trade signal can be traced end-to-end: from the raw scraped post → parsed fields → risk gate decision → order submitted → fills received → position state change
 - [ ] **AUDIT-03**: Every order record links to the signal that triggered it; every execution record links to the order; every position lot change links to the execution
 - [ ] **AUDIT-04**: Partial closes and profit-booking actions record both the lot(s) reduced and the resulting remaining open quantity, preserving the full lot history
@@ -124,9 +124,9 @@
 | INGST-03 | Phase 2 | Pending |
 | INGST-04 | Phase 2 | Pending |
 | INGST-05 | Phase 2 | Pending |
-| INGST-06 | Phase 2 | Pending |
+| INGST-06 | Phase 2 | Complete |
 | INGST-07 | Phase 2 | Pending |
-| AUDIT-01 | Phase 2 | Pending |
+| AUDIT-01 | Phase 2 | Complete |
 | AUDIT-02 | Phase 2 | Pending |
 | AUDIT-03 | Phase 2 | Pending |
 | AUDIT-04 | Phase 2 | Pending |
