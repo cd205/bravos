@@ -1,8 +1,7 @@
 """
-Wave 0 test stubs for bravos.ingestion.scraper.
+Tests for bravos.ingestion.scraper.
 
 Tests use mock WebDriver — no live browser or site needed.
-Stubs are @pytest.mark.skip until plan 02-03 implements the scraper.
 
 Requirement coverage:
   INGST-01 -> test_startup_loads_credentials, test_login_calls_automated_login
@@ -14,7 +13,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 
-@pytest.mark.skip(reason="Scraper not yet implemented (plan 02-03)")
 def test_startup_loads_credentials():
     from bravos.ingestion.scraper import BravosScraper
     with patch("bravos.ingestion.scraper.get_secret") as mock_secret:
@@ -26,7 +24,6 @@ def test_startup_loads_credentials():
         assert mock_secret.call_count == 2  # username + password
 
 
-@pytest.mark.skip(reason="Scraper not yet implemented (plan 02-03)")
 def test_session_expiry_detected():
     from bravos.ingestion.scraper import BravosScraper
     s = BravosScraper()
@@ -36,7 +33,6 @@ def test_session_expiry_detected():
     assert s._check_session() == False
 
 
-@pytest.mark.skip(reason="Scraper not yet implemented (plan 02-03)")
 def test_session_valid():
     from bravos.ingestion.scraper import BravosScraper
     s = BravosScraper()
@@ -46,7 +42,6 @@ def test_session_valid():
     assert s._check_session() == True
 
 
-@pytest.mark.skip(reason="Scraper not yet implemented (plan 02-03)")
 def test_reauth_on_expiry():
     from bravos.ingestion.scraper import BravosScraper
     s = BravosScraper()
@@ -61,7 +56,6 @@ def test_reauth_on_expiry():
     mock_login.assert_called_once()
 
 
-@pytest.mark.skip(reason="Scraper not yet implemented (plan 02-03)")
 def test_get_recent_posts_returns_list():
     from bravos.ingestion.scraper import BravosScraper
     s = BravosScraper()
@@ -79,7 +73,6 @@ def test_get_recent_posts_returns_list():
     assert posts[0]["url"] == "https://bravosresearch.com/portfolio-update/eme-post/"
 
 
-@pytest.mark.skip(reason="Scraper not yet implemented (plan 02-03)")
 def test_no_update_on_duplicate():
     """AUDIT-06: scraper must use INSERT ON CONFLICT DO NOTHING, never UPDATE."""
     from bravos.ingestion.scraper import BravosScraper
