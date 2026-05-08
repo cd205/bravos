@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-05-08T07:54:22.470Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-05-08T08:19:34.557Z"
 progress:
   total_phases: 8
   completed_phases: 1
   total_plans: 12
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-05-01)
 ## Current Position
 
 Phase: 02 (signal-ingestion) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 
 ## Performance Metrics
 
@@ -49,6 +49,7 @@ Plan: 2 of 5
 | Phase 01 P01 | 2min | 1 tasks | 4 files |
 | Phase 01 P01 | 45 | 2 tasks | 6 files |
 | Phase 02 P01 | 4min | 2 tasks | 7 files |
+| Phase 02 P02 | 12min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -65,6 +66,9 @@ Recent decisions affecting current work:
 - [Phase 01]: DEV-04: ibgateway.service Restart=always,RestartSec=15 — mirrors opt-trade-vm4
 - [Phase 02]: Phase 2 Wave 0 follows Phase 1 skip-stub pattern: full test bodies inside @pytest.mark.skip, skip reason names implementing plan
 - [Phase 02]: DB migration SQL written and ready; not applied live because Cloud SQL Auth Proxy binary unavailable on this VM state
+- [Phase 02]: Confidence threshold: 4=high, >=2=medium, <2=low (test behavior overrides D-10 prose)
+- [Phase 02]: parse_method='spacy' when ticker is None — marks NLP path was entered, even if spaCy unavailable
+- [Phase 02]: WEIGHT_RE matches 'weight from X to Y' in addition to 'weight of X to Y'
 
 ### Pending Todos
 
@@ -78,7 +82,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-08T07:54:22.465Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-05-08T08:19:34.552Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
 Next action: /gsd:plan-phase for Phase 2 (Signal Ingestion)

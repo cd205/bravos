@@ -10,8 +10,8 @@
 - [ ] **INGST-01**: System logs into bravosresearch.com using securely stored credentials via Selenium and maintains a persistent browser session throughout the trading day
 - [ ] **INGST-02**: System polls the research page every 5 minutes, filters to "Trade Alert" category, and detects posts not previously seen
 - [ ] **INGST-03**: System deduplicates signals by post URL — a post already processed is never re-processed regardless of site edits
-- [ ] **INGST-04**: System extracts from each new Trade Alert post: ticker symbol, action type (open/add/partial-close/close), weight change (old weight → new weight), and reference price
-- [ ] **INGST-05**: System assigns a confidence score to each parsed signal; low-confidence parses are flagged and not routed to order execution
+- [x] **INGST-04**: System extracts from each new Trade Alert post: ticker symbol, action type (open/add/partial-close/close), weight change (old weight → new weight), and reference price
+- [x] **INGST-05**: System assigns a confidence score to each parsed signal; low-confidence parses are flagged and not routed to order execution
 - [x] **INGST-06**: Every scraped signal is stored verbatim (raw HTML + structured fields) in the database with a parse status, regardless of whether an order is placed
 - [ ] **INGST-07**: System detects and re-authenticates when a session expires (i.e. confirms logged-in state after each scrape cycle, not just at startup)
 
@@ -42,10 +42,10 @@
 ### Audit Trail
 
 - [x] **AUDIT-01**: Every system action (scrape, parse, risk check, order submission, fill, position open/close/reduce) is recorded in the database with a timestamp, actor (system/automated), and outcome — no action is silent
-- [ ] **AUDIT-02**: Each trade signal can be traced end-to-end: from the raw scraped post → parsed fields → risk gate decision → order submitted → fills received → position state change
+- [x] **AUDIT-02**: Each trade signal can be traced end-to-end: from the raw scraped post → parsed fields → risk gate decision → order submitted → fills received → position state change
 - [ ] **AUDIT-03**: Every order record links to the signal that triggered it; every execution record links to the order; every position lot change links to the execution
-- [ ] **AUDIT-04**: Partial closes and profit-booking actions record both the lot(s) reduced and the resulting remaining open quantity, preserving the full lot history
-- [ ] **AUDIT-05**: Position closes record which specific lots were closed (FIFO), the entry price of each lot, exit price, and realized P&L per lot
+- [x] **AUDIT-04**: Partial closes and profit-booking actions record both the lot(s) reduced and the resulting remaining open quantity, preserving the full lot history
+- [x] **AUDIT-05**: Position closes record which specific lots were closed (FIFO), the entry price of each lot, exit price, and realized P&L per lot
 - [ ] **AUDIT-06**: All audit records are immutable — system appends new state rows rather than updating/deleting history; prior states are always recoverable
 
 ### Position Tracking
@@ -122,15 +122,15 @@
 | INGST-01 | Phase 2 | Pending |
 | INGST-02 | Phase 2 | Pending |
 | INGST-03 | Phase 2 | Pending |
-| INGST-04 | Phase 2 | Pending |
-| INGST-05 | Phase 2 | Pending |
+| INGST-04 | Phase 2 | Complete |
+| INGST-05 | Phase 2 | Complete |
 | INGST-06 | Phase 2 | Complete |
 | INGST-07 | Phase 2 | Pending |
 | AUDIT-01 | Phase 2 | Complete |
-| AUDIT-02 | Phase 2 | Pending |
+| AUDIT-02 | Phase 2 | Complete |
 | AUDIT-03 | Phase 2 | Pending |
-| AUDIT-04 | Phase 2 | Pending |
-| AUDIT-05 | Phase 2 | Pending |
+| AUDIT-04 | Phase 2 | Complete |
+| AUDIT-05 | Phase 2 | Complete |
 | AUDIT-06 | Phase 2 | Pending |
 | IBKR-01 | Phase 3 | Pending |
 | IBKR-02 | Phase 3 | Pending |
