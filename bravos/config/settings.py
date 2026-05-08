@@ -27,9 +27,9 @@ LOGIN_URL = f"{BRAVOS_BASE_URL}/my-account/"
 ARTICLE_SELECTOR = "article"
 ARTICLE_LINK_SELECTOR = "h2 a, h1 a"
 POST_BODY_SELECTOR = ".entry-content, .post-content, article .content"
-# WordPress login field names
-LOGIN_USERNAME_FIELD = "log"
-LOGIN_PASSWORD_FIELD = "pwd"
+# WooCommerce login field names (confirmed via selector discovery 2026-05-08)
+LOGIN_USERNAME_FIELD = "username"
+LOGIN_PASSWORD_FIELD = "password"
 LOGIN_SUBMIT_XPATH = "//button[@type='submit'] | //input[@type='submit']"
 # Scraping limits
 POSTS_PER_CYCLE = 10
