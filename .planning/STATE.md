@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-05-08T08:19:34.557Z"
+stopped_at: "Checkpoint reached: 02-03 Task 2 (selector discovery) awaiting human verification"
+last_updated: "2026-05-08T10:13:34.489Z"
 progress:
   total_phases: 8
   completed_phases: 1
   total_plans: 12
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 # Project State
@@ -50,6 +50,7 @@ Plan: 3 of 5
 | Phase 01 P01 | 45 | 2 tasks | 6 files |
 | Phase 02 P01 | 4min | 2 tasks | 7 files |
 | Phase 02 P02 | 12min | 2 tasks | 3 files |
+| Phase 02 P03 | 32min | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -69,6 +70,8 @@ Recent decisions affecting current work:
 - [Phase 02]: Confidence threshold: 4=high, >=2=medium, <2=low (test behavior overrides D-10 prose)
 - [Phase 02]: parse_method='spacy' when ticker is None — marks NLP path was entered, even if spaCy unavailable
 - [Phase 02]: WEIGHT_RE matches 'weight from X to Y' in addition to 'weight of X to Y'
+- [Phase 02]: WordPress login fields: name='log' (username) and name='pwd' (password) — standard WP /my-account/ form
+- [Phase 02]: Selector defaults are WordPress standard (article, h2 a, .entry-content) — must be confirmed against live Bravos site
 
 ### Pending Todos
 
@@ -82,7 +85,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-08T08:19:34.552Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-05-08T10:13:34.485Z
+Stopped at: Checkpoint reached: 02-03 Task 2 (selector discovery) awaiting human verification
 Resume file: None
 Next action: /gsd:plan-phase for Phase 2 (Signal Ingestion)
