@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: "Checkpoint reached: 02-03 Task 2 (selector discovery) awaiting human verification"
-last_updated: "2026-05-08T10:13:34.489Z"
+stopped_at: Completed 02-04-PLAN.md — DB integration tests passing
+last_updated: "2026-05-09T05:46:21.938Z"
 progress:
   total_phases: 8
   completed_phases: 1
   total_plans: 12
-  completed_plans: 10
+  completed_plans: 11
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-05-01)
 ## Current Position
 
 Phase: 02 (signal-ingestion) — EXECUTING
-Plan: 3 of 5
+Plan: 2 of 5
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Plan: 3 of 5
 | Phase 02 P01 | 4min | 2 tasks | 7 files |
 | Phase 02 P02 | 12min | 2 tasks | 3 files |
 | Phase 02 P03 | 32min | 1 tasks | 3 files |
+| Phase 02 P04 | 15min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,8 @@ Recent decisions affecting current work:
 - [Phase 02]: WEIGHT_RE matches 'weight from X to Y' in addition to 'weight of X to Y'
 - [Phase 02]: WordPress login fields: name='log' (username) and name='pwd' (password) — standard WP /my-account/ form
 - [Phase 02]: Selector defaults are WordPress standard (article, h2 a, .entry-content) — must be confirmed against live Bravos site
+- [Phase 02]: Un-skipping tests is the canonical way to activate Wave 0 stubs — no rewrite needed, the test body was complete
+- [Phase 02]: v2 migration (infra/migrate_signals_v2.sql) adds parse_method + scraped_at; applied to live Cloud SQL before running tests
 
 ### Pending Todos
 
@@ -85,7 +88,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-08T10:13:34.485Z
-Stopped at: Checkpoint reached: 02-03 Task 2 (selector discovery) awaiting human verification
+Last session: 2026-05-09T05:46:21.933Z
+Stopped at: Completed 02-04-PLAN.md — DB integration tests passing
 Resume file: None
 Next action: /gsd:plan-phase for Phase 2 (Signal Ingestion)

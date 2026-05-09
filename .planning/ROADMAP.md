@@ -50,7 +50,7 @@ Plans:
 - [x] 02-01-PLAN.md — Schema migration + package scaffold + Wave 0 test stubs
 - [x] 02-02-PLAN.md — Parser module (TDD: regex extraction, action keywords, confidence scoring)
 - [x] 02-03-PLAN.md — Scraper module (BravosScraper class + selector discovery)
-- [ ] 02-04-PLAN.md — DB integration tests (dedup, raw_html, audit fields)
+- [x] 02-04-PLAN.md — DB integration tests (dedup, raw_html, audit fields)
 - [ ] 02-05-PLAN.md — Daemon entry point + end-to-end integration validation
 
 ### Phase 3: IBKR Connection
@@ -129,7 +129,7 @@ Note: Phase 3 depends on Phase 1 only (not Phase 2), and can be developed in par
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Infrastructure Setup | 7/7 | Done | 2026-05-07 |
-| 2. Signal Ingestion | 3/5 | In Progress|  |
+| 2. Signal Ingestion | 4/5 | In Progress|  |
 | 3. IBKR Connection | 0/TBD | Not started | - |
 | 4. Risk Controls and Order Execution | 0/TBD | Not started | - |
 | 5. Fill Capture and Position Reconciliation | 0/TBD | Not started | - |

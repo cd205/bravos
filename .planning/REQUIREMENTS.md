@@ -43,10 +43,10 @@
 
 - [x] **AUDIT-01**: Every system action (scrape, parse, risk check, order submission, fill, position open/close/reduce) is recorded in the database with a timestamp, actor (system/automated), and outcome — no action is silent
 - [x] **AUDIT-02**: Each trade signal can be traced end-to-end: from the raw scraped post → parsed fields → risk gate decision → order submitted → fills received → position state change
-- [ ] **AUDIT-03**: Every order record links to the signal that triggered it; every execution record links to the order; every position lot change links to the execution
+- [x] **AUDIT-03**: Every order record links to the signal that triggered it; every execution record links to the order; every position lot change links to the execution
 - [x] **AUDIT-04**: Partial closes and profit-booking actions record both the lot(s) reduced and the resulting remaining open quantity, preserving the full lot history
 - [x] **AUDIT-05**: Position closes record which specific lots were closed (FIFO), the entry price of each lot, exit price, and realized P&L per lot
-- [ ] **AUDIT-06**: All audit records are immutable — system appends new state rows rather than updating/deleting history; prior states are always recoverable
+- [x] **AUDIT-06**: All audit records are immutable — system appends new state rows rather than updating/deleting history; prior states are always recoverable
 
 ### Position Tracking
 
@@ -128,10 +128,10 @@
 | INGST-07 | Phase 2 | Pending |
 | AUDIT-01 | Phase 2 | Complete |
 | AUDIT-02 | Phase 2 | Complete |
-| AUDIT-03 | Phase 2 | Pending |
+| AUDIT-03 | Phase 2 | Complete |
 | AUDIT-04 | Phase 2 | Complete |
 | AUDIT-05 | Phase 2 | Complete |
-| AUDIT-06 | Phase 2 | Pending |
+| AUDIT-06 | Phase 2 | Complete |
 | IBKR-01 | Phase 3 | Pending |
 | IBKR-02 | Phase 3 | Pending |
 | IBKR-03 | Phase 3 | Pending |
