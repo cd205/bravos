@@ -13,7 +13,7 @@ Eight phases build the system bottom-up along its critical dependency chain: fir
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Infrastructure Setup** - GCP VM provisioning (bravos_vm1), IB Gateway install, Python env, Chrome headless, PostgreSQL install + schema, secrets management
-- [ ] **Phase 2: Signal Ingestion** - Selenium scraper, alert parser, and full audit trail stored in PostgreSQL
+- [x] **Phase 2: Signal Ingestion** - Selenium scraper, alert parser, and full audit trail stored in PostgreSQL (completed 2026-05-09)
 - [ ] **Phase 3: IBKR Connection** - Persistent IB Gateway connection with heartbeat, reconnect, and startup reconciliation
 - [ ] **Phase 4: Risk Controls and Order Execution** - Single synchronous risk gate, order size calculator, and market-order submission
 - [ ] **Phase 5: Fill Capture and Position Reconciliation** - Execution callbacks, partial-fill handling, FIFO lots, and periodic broker reconciliation
@@ -51,7 +51,7 @@ Plans:
 - [x] 02-02-PLAN.md — Parser module (TDD: regex extraction, action keywords, confidence scoring)
 - [x] 02-03-PLAN.md — Scraper module (BravosScraper class + selector discovery)
 - [x] 02-04-PLAN.md — DB integration tests (dedup, raw_html, audit fields)
-- [ ] 02-05-PLAN.md — Daemon entry point + end-to-end integration validation
+- [x] 02-05-PLAN.md — Daemon entry point + end-to-end integration validation
 
 ### Phase 3: IBKR Connection
 **Goal**: A persistent, self-healing IBKR connection thread is running that survives CLOSE-WAIT stalls and Gateway restarts, reconciles open positions and orders on startup, and supports both paper and live account configuration
@@ -129,7 +129,7 @@ Note: Phase 3 depends on Phase 1 only (not Phase 2), and can be developed in par
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Infrastructure Setup | 7/7 | Done | 2026-05-07 |
-| 2. Signal Ingestion | 4/5 | In Progress|  |
+| 2. Signal Ingestion | 5/5 | Complete   | 2026-05-09 |
 | 3. IBKR Connection | 0/TBD | Not started | - |
 | 4. Risk Controls and Order Execution | 0/TBD | Not started | - |
 | 5. Fill Capture and Position Reconciliation | 0/TBD | Not started | - |

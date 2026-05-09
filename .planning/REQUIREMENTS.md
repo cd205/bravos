@@ -8,12 +8,12 @@
 ### Signal Ingestion
 
 - [ ] **INGST-01**: System logs into bravosresearch.com using securely stored credentials via Selenium and maintains a persistent browser session throughout the trading day
-- [ ] **INGST-02**: System polls the research page every 5 minutes, filters to "Trade Alert" category, and detects posts not previously seen
+- [x] **INGST-02**: System polls the research page every 5 minutes, filters to "Trade Alert" category, and detects posts not previously seen
 - [ ] **INGST-03**: System deduplicates signals by post URL — a post already processed is never re-processed regardless of site edits
 - [x] **INGST-04**: System extracts from each new Trade Alert post: ticker symbol, action type (open/add/partial-close/close), weight change (old weight → new weight), and reference price
 - [x] **INGST-05**: System assigns a confidence score to each parsed signal; low-confidence parses are flagged and not routed to order execution
 - [x] **INGST-06**: Every scraped signal is stored verbatim (raw HTML + structured fields) in the database with a parse status, regardless of whether an order is placed
-- [ ] **INGST-07**: System detects and re-authenticates when a session expires (i.e. confirms logged-in state after each scrape cycle, not just at startup)
+- [x] **INGST-07**: System detects and re-authenticates when a session expires (i.e. confirms logged-in state after each scrape cycle, not just at startup)
 
 ### Order Execution
 
@@ -120,12 +120,12 @@
 | DEPL-04 | Phase 1 | Complete |
 | DEPL-05 | Phase 1 | Complete |
 | INGST-01 | Phase 2 | Pending |
-| INGST-02 | Phase 2 | Pending |
+| INGST-02 | Phase 2 | Complete |
 | INGST-03 | Phase 2 | Pending |
 | INGST-04 | Phase 2 | Complete |
 | INGST-05 | Phase 2 | Complete |
 | INGST-06 | Phase 2 | Complete |
-| INGST-07 | Phase 2 | Pending |
+| INGST-07 | Phase 2 | Complete |
 | AUDIT-01 | Phase 2 | Complete |
 | AUDIT-02 | Phase 2 | Complete |
 | AUDIT-03 | Phase 2 | Complete |

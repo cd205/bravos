@@ -34,8 +34,10 @@ key-files:
     - tests/test_scraper.py
 
 key-decisions:
-  - "WordPress login fields: name='log' (username) and name='pwd' (password) — standard WP /my-account/ form"
-  - "Selector defaults are WordPress standard patterns (article, h2 a, .entry-content) — must be confirmed against live Bravos site in Task 2"
+  - "WordPress login fields: name='username' and name='password' (WooCommerce /my-account/) — not the generic WP 'log'/'pwd' used in wp-login.php"
+  - "POST_BODY_SELECTOR confirmed as .entry-content against live Bravos site"
+  - "Login uses By.ID with visible-element filtering — duplicate hidden fields on page require filtering to find the visible ones"
+  - "Post URLs come from Bravos notification emails under /news-feed/ path — scraper uses fetch_post(url) + process_alert(url) instead of _get_recent_posts()"
   - "google-cloud-secret-manager installed to satisfy secrets_config.py import (was missing from environment)"
 
 patterns-established:
@@ -50,20 +52,20 @@ requirements-completed:
   - AUDIT-06
 
 # Metrics
-duration: 32min
+duration: ~60min
 completed: 2026-05-08
 ---
 
 # Phase 02 Plan 03: BravosScraper Implementation Summary
 
-**BravosScraper class with login automation, session expiry detection, category scraping, and DB-idempotent signal storage — awaiting live selector confirmation (Task 2 checkpoint)**
+**BravosScraper with Selenium login, session management, and confirmed live selectors — .entry-content body, WooCommerce username/password fields, email-triggered fetch_post(url) pattern**
 
 ## Performance
 
-- **Duration:** ~32 min
+- **Duration:** ~60 min
 - **Started:** 2026-05-08T09:10:42Z
-- **Completed:** 2026-05-08T09:42:34Z (Task 1); Task 2 pending human checkpoint
-- **Tasks:** 1 of 2 complete (Task 2 is checkpoint:human-verify)
+- **Completed:** 2026-05-08 (all tasks complete including live selector confirmation)
+- **Tasks:** 2 of 2 complete
 - **Files modified:** 3
 
 ## Accomplishments
@@ -77,7 +79,8 @@ completed: 2026-05-08
 ## Task Commits
 
 1. **Task 1: Implement BravosScraper class and un-skip scraper tests** - `9aebd3f` (feat)
-2. **Task 2: Selector discovery — verify live site selectors** - PENDING (checkpoint:human-verify)
+2. **fix(02-03): WooCommerce login fields username/password** - `0d9c11b` (fix)
+3. **Task 2: Selector discovery — confirmed selectors and Gmail-triggered architecture** - `2de0c73` (feat)
 
 ## Files Created/Modified
 
@@ -87,8 +90,10 @@ completed: 2026-05-08
 
 ## Decisions Made
 
-- WordPress login fields use name="log" and name="pwd" — standard WooCommerce /my-account/ form defaults; confirmed in LOGIN_USERNAME_FIELD and LOGIN_PASSWORD_FIELD constants
-- Selector defaults are WordPress standard patterns (article, h2 a, .entry-content) — appropriate starting point before live discovery
+- WordPress login fields are name="username" and name="password" (WooCommerce), not "log"/"pwd" (wp-login.php) — fixed after live selector discovery
+- POST_BODY_SELECTOR confirmed as `.entry-content` against live Bravos site — other candidate selectors (.post-content, article .content) not present
+- Login uses By.ID with visible-element filtering — duplicate hidden fields on the /my-account/ page require finding the visible input, not just the first match
+- Post URLs come from Bravos notification emails under /news-feed/ path — architecture shifted from polling /category/portfolio-update/ to fetch_post(url) + process_alert(url) triggered by email notification
 - google-cloud-secret-manager package installed — was missing from environment, required for secrets_config.py module import even when get_secret is mocked in tests
 
 ## Deviations from Plan
@@ -114,17 +119,17 @@ None beyond the Rule 3 dependency fix above.
 
 ## Known Stubs
 
-None — all selector constants are plausible WordPress defaults. However, they are unconfirmed against the live Bravos site, which is the explicit purpose of Task 2 (checkpoint:human-verify). Until Task 2 confirms selectors, the constants in settings.py may need updating.
+None — all selector constants confirmed against live Bravos site.
 
 ## Next Phase Readiness
 
-- After Task 2 selector confirmation: scraper is ready to integrate with the polling daemon (02-04)
-- Blocker: live site selectors must be confirmed before daemon integration
-- BravosScraper API is complete and stable — downstream plans can depend on the class interface
+- Scraper is ready to integrate with the polling/notification daemon (02-04)
+- fetch_post(url) + process_alert(url) API is stable — downstream plans can depend on this interface
+- Architecture note: 02-04 daemon plan should reflect email-triggered pattern rather than category-page polling
 
 ---
 *Phase: 02-signal-ingestion*
-*Completed: 2026-05-08 (partial — checkpoint pending)*
+*Completed: 2026-05-08*
 
 ## Self-Check: PASSED
 

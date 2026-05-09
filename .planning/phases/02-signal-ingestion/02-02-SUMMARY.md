@@ -132,6 +132,14 @@ None — all exported functions are fully implemented and 12 tests pass.
 - Low-confidence signals properly flagged; not forwarded to order execution (D-11)
 - Plan 02-03 (scraper implementation) can now wire the parser
 
+## Self-Check: PASSED
+
+- FOUND: bravos/ingestion/parser.py
+- FOUND: tests/test_parser.py
+- FOUND: 02-02-SUMMARY.md
+- FOUND: commit 72cceb4 (test: un-skip parser tests)
+- FOUND: commit 5655677 (feat: implement trade alert parser)
+
 ---
 *Phase: 02-signal-ingestion*
 *Completed: 2026-05-08*

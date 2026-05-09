@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 02-04-PLAN.md — DB integration tests passing
-last_updated: "2026-05-09T05:46:21.938Z"
+stopped_at: "Completed 02-05 Task 1 — daemon + integration test committed; checkpoint:human-verify pending"
+last_updated: "2026-05-09T05:54:58.024Z"
 progress:
   total_phases: 8
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 12
-  completed_plans: 11
+  completed_plans: 12
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-05-01)
 ## Current Position
 
 Phase: 02 (signal-ingestion) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Plan: 2 of 5
 | Phase 02 P02 | 12min | 2 tasks | 3 files |
 | Phase 02 P03 | 32min | 1 tasks | 3 files |
 | Phase 02 P04 | 15min | 1 tasks | 1 files |
+| Phase 02 P05 | 5 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Recent decisions affecting current work:
 - [Phase 02]: Selector defaults are WordPress standard (article, h2 a, .entry-content) — must be confirmed against live Bravos site
 - [Phase 02]: Un-skipping tests is the canonical way to activate Wave 0 stubs — no rewrite needed, the test body was complete
 - [Phase 02]: v2 migration (infra/migrate_signals_v2.sql) adds parse_method + scraped_at; applied to live Cloud SQL before running tests
+- [Phase 02]: Daemon schedule loop runs session health check (not category polling) — Gmail-triggered arch; alerts arrive via email, loop keeps Chrome driver warm
+- [Phase 02]: Integration tests accept TEST_ALERT_URL env var to specify a real post URL on VM without hardcoding
 
 ### Pending Todos
 
@@ -88,7 +91,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-09T05:46:21.933Z
-Stopped at: Completed 02-04-PLAN.md — DB integration tests passing
+Last session: 2026-05-09T05:54:58.020Z
+Stopped at: Completed 02-05 Task 1 — daemon + integration test committed; checkpoint:human-verify pending
 Resume file: None
 Next action: /gsd:plan-phase for Phase 2 (Signal Ingestion)
