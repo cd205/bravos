@@ -29,6 +29,10 @@ import signal
 import sys
 import time
 import logging
+from pathlib import Path
+
+# Ensure the repo root is on sys.path when running as `python scripts/run_ingestion.py`
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import schedule
 
