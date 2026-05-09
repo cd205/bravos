@@ -12,7 +12,6 @@ Requirement coverage:
 import pytest
 
 
-@pytest.mark.skip(reason="DB write layer not yet implemented (plan 02-04)")
 def test_dedup_on_conflict(db_connection):
     """INGST-03: Duplicate post_url is silently ignored."""
     test_url = "https://test.bravosresearch.com/phase2-dedup-fixture"
@@ -34,7 +33,6 @@ def test_dedup_on_conflict(db_connection):
     assert count == 1
 
 
-@pytest.mark.skip(reason="DB write layer not yet implemented (plan 02-04)")
 def test_raw_html_stored(db_connection):
     """INGST-06: raw_html column is populated for every signal."""
     test_url = "https://test.bravosresearch.com/phase2-raw-html-fixture"
@@ -53,7 +51,6 @@ def test_raw_html_stored(db_connection):
     assert row[0] == raw
 
 
-@pytest.mark.skip(reason="DB write layer not yet implemented (plan 02-04)")
 def test_audit_fields_populated(db_connection):
     """AUDIT-01: Every signal has scraped_at and parse_method populated."""
     test_url = "https://test.bravosresearch.com/phase2-audit-fixture"
