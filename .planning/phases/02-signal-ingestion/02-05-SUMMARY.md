@@ -25,6 +25,7 @@ tech-stack:
     - "SIGTERM handler sets global _shutdown flag — main loop exits cleanly, scraper.shutdown() called once"
     - "Integration tests use @pytest.mark.integration and scope='module' fixture for shared BravosScraper instance (one login per test run)"
     - "Session health check cycle: Gmail-triggered arch means alerts come via email; schedule loop keeps Chrome driver session warm"
+    - "sys.path insert(0, repo_root) in daemon entry point — allows direct invocation without PYTHONPATH env var"
 
 key-files:
   created:
@@ -48,14 +49,14 @@ completed: 2026-05-09
 
 # Phase 02 Plan 05: Ingestion Daemon + Integration Tests Summary
 
-**schedule-based daemon with SIGTERM graceful shutdown wrapping BravosScraper, plus 5-test integration suite covering login/session/fetch/store/dedup against live bravosresearch.com**
+**schedule-based daemon with SIGTERM graceful shutdown wrapping BravosScraper, plus 5-test integration suite covering login/session/fetch/store/dedup against live bravosresearch.com — all 5 tests verified passing on bravos-vm1**
 
 ## Performance
 
 - **Duration:** ~5 min
 - **Started:** 2026-05-09T05:53:04Z
 - **Completed:** 2026-05-09T05:58:00Z
-- **Tasks:** 1 of 2 (Task 2 is a human-verify checkpoint on bravos-vm1)
+- **Tasks:** 2 of 2 (Task 2 human-verify: PASSED on bravos-vm1)
 - **Files modified:** 2
 
 ## Accomplishments
@@ -64,20 +65,20 @@ completed: 2026-05-09
 - Created `tests/test_ingestion_integration.py` with 5 integration tests (INGST-01/02/03/06/07 coverage): login, session check, fetch_post content, signal stored with raw_html, dedup end-to-end
 - `pytest.ini` already had `integration` marker from prior plan — no change needed
 - All 18 unit tests pass (parser + scraper); DB-dependent tests require Cloud SQL Auth Proxy (expected on dev machine)
+- **Human verification (Task 2): PASSED on bravos-vm1** — 5/5 integration tests passed, daemon ran cleanly with startup/health-check/graceful-SIGTERM sequence confirmed
+- Post-verification fix: added `sys.path.insert(0, repo_root)` to daemon entry point so it runs without requiring `PYTHONPATH` env var (commit c4d0e7b)
 
 ## Task Commits
 
 Each task was committed atomically:
 
-1. **Task 1: Create daemon entry point and integration test** - `a94ddfc` (feat)
-
-**Task 2 (human-verify):** Pending — requires running daemon on bravos-vm1 and verifying signals in Cloud SQL.
-
-**Plan metadata:** (docs commit — this summary)
+1. **Task 1: Create daemon entry point and integration test** — `a94ddfc` (feat)
+2. **Task 2: sys.path fix for direct daemon invocation** — `c4d0e7b` (fix) — adds repo root to sys.path so daemon works without PYTHONPATH
+3. **Plan metadata: docs commit** — `4c538da` (docs) — summary + STATE.md at checkpoint
 
 ## Files Created/Modified
 
-- `scripts/run_ingestion.py` — Daemon entry point: SIGTERM handler, schedule loop, BravosScraper session health check, graceful shutdown
+- `scripts/run_ingestion.py` — Daemon entry point: SIGTERM handler, schedule loop, BravosScraper session health check, graceful shutdown, sys.path fix for direct invocation
 - `tests/test_ingestion_integration.py` — 5 integration tests marked `@pytest.mark.integration`, shared `live_scraper` module fixture, `TEST_ALERT_URL` env var override
 
 ## Decisions Made
@@ -98,63 +99,52 @@ Both files (`scripts/run_ingestion.py` and `tests/test_ingestion_integration.py`
 
 The daemon uses a session health-check cycle rather than the original plan's `scraper.run_cycle()` call — this aligns with the updated Gmail-triggered architecture from 02-03 and is architecturally correct.
 
+### Post-verification fix (Rule 1 — Bug): sys.path for direct invocation
+
+**Found during:** Task 2 (VM verification)
+**Issue:** Running `python scripts/run_ingestion.py` directly failed with `ModuleNotFoundError: No module named 'bravos'` unless `PYTHONPATH` was set explicitly
+**Fix:** Added `sys.path.insert(0, str(Path(__file__).resolve().parent.parent))` near top of `scripts/run_ingestion.py` so the repo root is always on the path
+**Files modified:** `scripts/run_ingestion.py`
+**Commit:** `c4d0e7b`
+
 ## Issues Encountered
 
-None.
+None beyond the sys.path import fix resolved in c4d0e7b.
 
-## User Setup Required
+## Verification Results (Task 2 — bravos-vm1)
 
-**Task 2 (blocking checkpoint) requires human validation on bravos-vm1:**
+**Date:** 2026-05-09
+**Environment:** bravos-vm1, GCP, Cloud SQL Auth Proxy active
 
-1. SSH into bravos-vm1:
-   ```bash
-   gcloud compute ssh bravos-vm1 --zone=us-central1-a
-   ```
+**Integration tests (5/5 passed):**
+- `test_login_succeeds` — PASSED
+- `test_session_check_after_login` — PASSED
+- `test_fetch_post_returns_content` — PASSED
+- `test_signal_stored_with_raw_html` — PASSED
+- `test_dedup_end_to_end` — PASSED
 
-2. Run integration tests (set `TEST_ALERT_URL` to a real Trade Alert post URL):
-   ```bash
-   cd ~/bravos
-   TEST_ALERT_URL="https://bravosresearch.com/your-real-post-url/" \
-   BRAVOS_DB_PASSWORD=$(gcloud secrets versions access latest --secret=bravos-db-password) \
-     ~/miniconda3/bin/pytest tests/test_ingestion_integration.py -m integration -x -v
-   ```
-   Expected: 5 tests pass.
-
-3. Run the daemon for 1-2 cycles (~6 minutes):
-   ```bash
-   cd ~/bravos
-   BRAVOS_DB_PASSWORD=$(gcloud secrets versions access latest --secret=bravos-db-password) \
-     timeout 360 python scripts/run_ingestion.py
-   ```
-   Expected log sequence:
-   - "Starting ingestion daemon..."
-   - "BravosScraper started — driver active, logged in"
-   - "Running initial scrape cycle..."
-   - "Session health check: OK — driver active and authenticated"
-   - "Ingestion daemon started — polling every 300s"
-   - After ~5 min: second health check cycle
-   - After timeout: "Received signal 15 — initiating graceful shutdown"
-
-4. Verify signals in database (signals arrive only when `process_alert(url)` is called by Gmail poller — check existing rows):
-   ```bash
-   PGPASSWORD=$(gcloud secrets versions access latest --secret=bravos-db-password) \
-     psql -h 127.0.0.1 -U bravos -d bravos_trading \
-     -c "SELECT id, ticker, action_type, confidence, parse_method, scraped_at FROM signals ORDER BY id DESC LIMIT 10;"
-   ```
-
-5. Resume signal: type "phase 2 verified" if pipeline works, or describe any issues found.
+**Daemon run verified:**
+- Startup sequence correct: "Starting ingestion daemon..." → session health check OK → graceful SIGTERM shutdown
+- No crashes during observed run
+- Chrome driver closed cleanly on shutdown
 
 ## Next Phase Readiness
 
 - Daemon entry point complete — can be managed via systemd service in Phase 3/deployment
-- Integration test suite ready for VM execution — gated on human verification
-- Phase 2 capstone: all scraping/parsing/storage components built, tested at unit level, and wired into the running daemon
-- Blocking checkpoint: Task 2 human-verify must pass before Phase 2 can be marked complete
+- Integration test suite verified against live site on bravos-vm1
+- Phase 2 capstone: all scraping/parsing/storage components built, tested at unit level, wired into running daemon, and validated end-to-end on VM
+- Phase 2 is COMPLETE — all 5 plans verified
 
 ## Known Stubs
 
-- `KNOWN_ALERT_URL` defaults to `https://bravosresearch.com/?p=1` (placeholder) — must be overridden via `TEST_ALERT_URL` env var on VM to point to a real member-accessible Trade Alert post
+None. `TEST_ALERT_URL` env var pattern is intentional (not a stub — it allows VM-specific URL injection without hardcoding).
+
+## Self-Check: PASSED
+
+- `scripts/run_ingestion.py` — confirmed exists (commits a94ddfc, c4d0e7b)
+- `tests/test_ingestion_integration.py` — confirmed exists (commit a94ddfc)
+- All 3 commits confirmed in git log: a94ddfc, c4d0e7b, 4c538da
 
 ---
 *Phase: 02-signal-ingestion*
-*Completed: 2026-05-09 (Task 1 complete; Task 2 pending human verification)*
+*Completed: 2026-05-09 — all tasks verified on bravos-vm1*
