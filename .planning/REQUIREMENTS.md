@@ -35,7 +35,7 @@
 
 - [x] **IBKR-01**: System maintains a persistent connection to IB Gateway with a heartbeat check every 60 seconds; 2FA is only required at initial startup, not on reconnect
 - [x] **IBKR-02**: System detects stale/dead connections (CLOSE-WAIT) and forces reconnect automatically without requiring operator intervention
-- [ ] **IBKR-03**: On system startup, system reconciles current IBKR positions and open orders with internal database state before entering the scrape/execute loop
+- [x] **IBKR-03**: On system startup, system reconciles current IBKR positions and open orders with internal database state before entering the scrape/execute loop
 - [ ] **IBKR-04**: System periodically reconciles internal position state against IBKR's authoritative position data (reqPositions); discrepancies are logged and flagged
 - [x] **IBKR-05**: System supports both paper trading account (port 4002) and live account (port 4001) via configuration toggle, enabling end-to-end testing without real orders
 
@@ -134,7 +134,7 @@
 | AUDIT-06 | Phase 2 | Complete |
 | IBKR-01 | Phase 3 | Complete |
 | IBKR-02 | Phase 3 | Complete |
-| IBKR-03 | Phase 3 | Pending |
+| IBKR-03 | Phase 3 | Complete |
 | IBKR-05 | Phase 3 | Complete |
 | EXEC-01 | Phase 4 | Pending |
 | EXEC-02 | Phase 4 | Pending |

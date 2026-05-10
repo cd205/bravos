@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-05-10T08:18:47.937Z"
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-05-10T08:22:39.354Z"
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 16
-  completed_plans: 14
+  completed_plans: 15
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-05-01)
 ## Current Position
 
 Phase: 03 (ibkr-connection) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Plan: 3 of 4
 | Phase 02 P05 | 5 | 1 tasks | 2 files |
 | Phase 03 P01 | 3min | 3 tasks | 3 files |
 | Phase 03 P02 | 3min | 2 tasks | 2 files |
+| Phase 03 P03 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,9 @@ Recent decisions affecting current work:
 - [Phase 03]: Run broker tests with miniconda3 python (/home/chris_s_dodd/miniconda3/bin/python) — system python3 lacks ibapi
 - [Phase 03]: _trigger_reconnect uses lock-guarded _reconnecting flag to prevent duplicate reconnect thread spawns
 - [Phase 03]: 03-2 tests permanently unskipped (not re-skipped) — 7 tests now pass with miniconda3 python
+- [Phase 03]: reqAllOpenOrders() used in run_startup_reconciliation (not reqOpenOrders()) — captures manually-placed TWS orders for full reconciliation; Phase 4 order tracking uses scoped reqOpenOrders()
+- [Phase 03]: DB integration tests deferred to bravos-vm1 — Cloud SQL Auth Proxy not running on dev VM; 2 tests unskipped and will run on VM
+- [Phase 03]: Helper functions _write_position_snapshot and _reconcile_against_db are module-level not IBApp methods — DB operations logically separate from IBKR connection class
 
 ### Pending Todos
 
@@ -99,7 +103,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-10T08:18:47.934Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-05-10T08:22:39.351Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None
 Next action: /gsd:execute-phase 3
