@@ -1,0 +1,237 @@
+# Plan 4: Daemon Integration
+
+## Goal
+
+Wire the completed IBApp into `scripts/run_ingestion.py`. After this plan, the daemon starts the IBKR connection thread before the schedule loop, runs startup reconciliation if the connection succeeds, and starts background reconnect if it fails (D-14). SIGTERM cleanly stops IBApp before exiting. The daemon can be started with `TRADING_MODE=paper` or `TRADING_MODE=live` and the correct port is used with no code change (IBKR-05).
+
+This plan modifies only `scripts/run_ingestion.py`. The `bravos/broker/connection.py` module is complete and not touched here.
+
+## Requirements
+
+- **IBKR-01** — heartbeat thread started before main loop; self-healing without operator intervention
+- **IBKR-02** — reconnect path active (inherited from IBApp); SIGTERM triggers clean disconnect
+- **IBKR-03** — reconciliation runs and completes before `schedule.run_pending()` loop
+- **IBKR-05** — paper/live switching via `TRADING_MODE` env var only; `get_ibkr_port()` called at IBApp construction
+
+## Wave 0: No New Test Stubs Needed
+
+All IBApp unit and integration tests were written in Plan 1's Wave 0. This plan's correctness is verified through the full test suite pass and a manual daemon startup check (the integration test is the running daemon connecting to a real Gateway).
+
+Confirm existing stubs are present:
+```bash
+pytest tests/test_broker.py -q
+# Expected: all tests collected, all skipped (03-1 through 03-3 are skipped until their plans land)
+```
+
+---
+
+## Wave 1: Integrate IBApp into `run_ingestion.py`
+
+### Task 1.1 — Modify `scripts/run_ingestion.py`
+
+**File:** `scripts/run_ingestion.py`
+
+Apply the following changes to `main()`. All edits are additions — do not remove any existing code (SIGTERM handler, schedule loop, scraper startup/shutdown).
+
+**1. Add imports at top of file (after existing imports):**
+
+```python
+import bravos.broker.connection as broker_module
+from bravos.broker.connection import IBApp
+from bravos.config import settings
+```
+
+Also add a `_get_db_connection()` helper function (module-level, before `main()`):
+
+```python
+def _get_db_connection():
+    """Open a psycopg2 connection for reconciliation. Closed after use."""
+    import psycopg2
+    import os
+    password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
+    return psycopg2.connect(
+        host=settings.DB_HOST,
+        port=settings.DB_PORT,
+        dbname=settings.DB_NAME,
+        user=settings.DB_USER,
+        password=password,
+    )
+```
+
+**2. In `main()`, insert the IBKR startup block AFTER the signal handler setup and BEFORE `_scraper = BravosScraper()`:**
+
+```python
+# ── IBKR startup (Phase 3) ────────────────────────────────────────────────
+logger.info(
+    "Starting IBKR connection — mode=%s host=%s port=%d client_id=%d",
+    settings.TRADING_MODE,
+    settings.IBKR_HOST,
+    settings.get_ibkr_port(),
+    settings.IBKR_CLIENT_ID,
+)
+_ibapp = IBApp(
+    host=settings.IBKR_HOST,
+    port=settings.get_ibkr_port(),
+    client_id=settings.IBKR_CLIENT_ID,
+)
+broker_module.ibapp = _ibapp
+
+ibkr_ok = _ibapp.connect_and_run(timeout=30)
+if ibkr_ok:
+    logger.info("IBKR connected — running startup reconciliation")
+    try:
+        _db_conn = _get_db_connection()
+        _ibapp.run_startup_reconciliation(_db_conn, timeout=30)
+        _db_conn.close()
+    except Exception:
+        logger.exception("Startup reconciliation failed — continuing without reconciliation")
+    _ibapp.start_heartbeat_monitor()
+    logger.info("IBKR ready — heartbeat monitor started")
+else:
+    logger.critical(
+        "IBKR initial connect failed (mode=%s port=%d) — "
+        "starting ingestion without IBKR (D-14). "
+        "Orders will not be placed until connection is established.",
+        settings.TRADING_MODE,
+        settings.get_ibkr_port(),
+    )
+    _ibapp.start_background_reconnect()
+# ── End IBKR startup ──────────────────────────────────────────────────────
+```
+
+**3. In the graceful cleanup block at the end of `main()` (after the `while not _shutdown` loop, before `_scraper.shutdown()`):**
+
+```python
+# Stop IBKR connection before scraper (IBApp disconnect is fast; scraper has Chrome to quit)
+if broker_module.ibapp is not None:
+    logger.info("Stopping IBKR connection...")
+    broker_module.ibapp.stop()
+```
+
+**Position:** The final cleanup block must be:
+```python
+# Graceful cleanup
+logger.info("Shutting down — closing Chrome driver")
+if broker_module.ibapp is not None:
+    logger.info("Stopping IBKR connection...")
+    broker_module.ibapp.stop()
+_scraper.shutdown()
+logger.info("Ingestion daemon stopped")
+```
+
+**4. No changes to `handle_shutdown()` or `run_cycle()`.** The SIGTERM handler sets `_shutdown = True` as before; the shutdown block handles IBApp.stop() cleanup linearly.
+
+**Verify (Wave 1):**
+
+```bash
+# Import check — no circular imports
+python -c "import scripts.run_ingestion" 2>/dev/null || \
+python -c "
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path('scripts/run_ingestion.py').resolve().parent.parent))
+import importlib.util
+spec = importlib.util.spec_from_file_location('run_ingestion', 'scripts/run_ingestion.py')
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print('import OK')
+"
+
+# Full test suite still green
+pytest tests/ -x -q
+```
+
+---
+
+## Wave 2: Checkpoint — Human Verify Daemon Startup
+
+This wave requires IB Gateway running in paper mode on bravos-vm1.
+
+**Pre-conditions:**
+- IB Gateway is running (paper account, port 4002).
+- Cloud SQL Auth Proxy is running (psycopg2 connection to bravos_trading DB).
+- `TRADING_MODE=paper` (default).
+- `BRAVOS_DB_PASSWORD` env var set.
+
+**Startup command:**
+```bash
+cd /home/chris_s_dodd/bravos
+TRADING_MODE=paper python scripts/run_ingestion.py
+```
+
+**Expected log sequence (confirm each line appears):**
+```
+Starting IBKR connection — mode=paper host=127.0.0.1 port=4002 client_id=1
+IBKR connected — nextValidId=<N> port=4002
+IBKR connected — running startup reconciliation
+reqPositions complete — <N> positions received
+reqOpenOrders complete — <N> open orders received
+reqAccountSummary complete — <N> tags received
+Wrote <N> position rows to broker_positions_snapshot
+Reconciliation complete — DB not modified (D-08)
+IBKR ready — heartbeat monitor started
+Starting ingestion daemon...
+Ingestion daemon started — polling every 300s
+```
+
+**After 60s, confirm heartbeat fires (check logs):**
+No new log line is expected from `currentTime` (it's silent), but the daemon must remain running with no ERROR or WARNING about heartbeat timeout.
+
+**SIGTERM handling (in a second terminal):**
+```bash
+kill -TERM <pid>
+```
+Expected log lines:
+```
+Received signal 15 — initiating graceful shutdown
+Stopping IBKR connection...
+IBKR connection stopped
+Shutting down — closing Chrome driver
+Ingestion daemon stopped
+```
+Process exits with code 0.
+
+**If IBKR connection fails (D-14 path — Gateway not running):**
+```bash
+TRADING_MODE=paper python scripts/run_ingestion.py
+```
+Expected:
+```
+IBKR initial connect failed (mode=paper port=4002) — starting ingestion without IBKR (D-14). Orders will not be placed until connection is established.
+Starting ingestion daemon...
+Ingestion daemon started — polling every 300s
+```
+Daemon continues running (scraper session health checks proceed). No crash.
+
+**DB verification (after successful startup):**
+```bash
+psql -h 127.0.0.1 -U bravos bravos_trading -c \
+  "SELECT ticker, position, avg_cost, snapshot_at FROM broker_positions_snapshot ORDER BY snapshot_at DESC LIMIT 5;"
+```
+Rows should be present (or empty table if no open positions in paper account — which is valid).
+
+**Type `approved` to continue past this checkpoint** (or describe issues).
+
+---
+
+## Verification
+
+Phase 3 is complete when ALL of the following are true:
+
+1. `pytest tests/ -x -q` — full test suite passes.
+2. Daemon starts, logs "IBKR connected" and "IBKR ready" when Gateway is running.
+3. Daemon starts with "IBKR initial connect failed" and keeps running when Gateway is not running.
+4. SIGTERM produces clean shutdown log sequence and process exits 0.
+5. `broker_positions_snapshot` table has rows after a successful startup reconciliation.
+6. `TRADING_MODE=live` causes connection on port 4001 with no code changes.
+
+**Switching to live mode (config-only test):**
+```bash
+grep -n "get_ibkr_port\|TRADING_MODE" scripts/run_ingestion.py
+# Should show get_ibkr_port() called via settings — no hardcoded port
+TRADING_MODE=live python -c "
+from bravos.config.settings import get_ibkr_port, TRADING_MODE
+print(f'mode={TRADING_MODE} port={get_ibkr_port()}')
+"
+# Expected: mode=live port=4001
+```

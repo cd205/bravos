@@ -62,7 +62,12 @@ Plans:
   2. On startup, the system fetches open positions and open orders from IBKR and reconciles them with the database before entering the main loop
   3. Switching between paper account (port 4002) and live account (port 4001) requires only a configuration change — no code changes
   4. All credentials (Bravos login, IBKR configuration) are loaded from environment variables or GCP Secret Manager — no secrets appear in code or committed files
-**Plans**: TBD
+**Plans**: 4 plans
+Plans:
+- [ ] 03-1-broker-package.md — bravos/broker/ package + IBApp class skeleton + all Wave 0 test stubs
+- [ ] 03-2-heartbeat-reconnect.md — heartbeat monitor thread + error code handling + exponential backoff reconnect
+- [ ] 03-3-startup-reconciliation.md — reqPositions/reqOpenOrders/reqAccountSummary callbacks + snapshot write + mismatch logging
+- [ ] 03-4-daemon-integration.md — integrate IBApp into run_ingestion.py + SIGTERM handler + startup failure mode
 
 ### Phase 4: Risk Controls and Order Execution
 **Goal**: The complete signal-to-order path is working: a parsed signal passes through a single synchronous risk gate (all controls enforced), order size is calculated from live account value, and a market order is submitted to IBKR with its state written to the database before submission
@@ -130,7 +135,7 @@ Note: Phase 3 depends on Phase 1 only (not Phase 2), and can be developed in par
 |-------|----------------|--------|-----------|
 | 1. Infrastructure Setup | 7/7 | Done | 2026-05-07 |
 | 2. Signal Ingestion | 5/5 | Complete   | 2026-05-09 |
-| 3. IBKR Connection | 0/TBD | Not started | - |
+| 3. IBKR Connection | 0/4 | Not started | - |
 | 4. Risk Controls and Order Execution | 0/TBD | Not started | - |
 | 5. Fill Capture and Position Reconciliation | 0/TBD | Not started | - |
 | 6. Paper Trading Validation | 0/TBD | Not started | - |
