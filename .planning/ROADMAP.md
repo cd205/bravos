@@ -135,7 +135,7 @@ Note: Phase 3 depends on Phase 1 only (not Phase 2), and can be developed in par
 |-------|----------------|--------|-----------|
 | 1. Infrastructure Setup | 7/7 | Done | 2026-05-07 |
 | 2. Signal Ingestion | 5/5 | Complete   | 2026-05-09 |
-| 3. IBKR Connection | 0/4 | Not started | - |
+| 3. IBKR Connection | 1/4 | In Progress|  |
 | 4. Risk Controls and Order Execution | 0/TBD | Not started | - |
 | 5. Fill Capture and Position Reconciliation | 0/TBD | Not started | - |
 | 6. Paper Trading Validation | 0/TBD | Not started | - |
