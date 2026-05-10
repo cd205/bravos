@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-05-10T08:14:09.331Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-05-10T08:18:47.937Z"
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 16
-  completed_plans: 13
+  completed_plans: 14
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-05-01)
 ## Current Position
 
 Phase: 03 (ibkr-connection) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Plan: 2 of 4
 | Phase 02 P04 | 15min | 1 tasks | 1 files |
 | Phase 02 P05 | 5 | 1 tasks | 2 files |
 | Phase 03 P01 | 3min | 3 tasks | 3 files |
+| Phase 03 P02 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,9 @@ Recent decisions affecting current work:
 - [Phase 03]: IBApp uses combined EWrapper+EClient Pattern B — fewer files, clean MRO since EWrapper has no __init__
 - [Phase 03]: error() routing via module-level code sets (_IGNORE_CODES, _IMMEDIATE_RECONNECT_CODES, etc.) — O(1) lookup, easily extended
 - [Phase 03]: Plan 03-2/03-3 stubs raise NotImplementedError — explicit contract, not silent no-op
+- [Phase 03]: Run broker tests with miniconda3 python (/home/chris_s_dodd/miniconda3/bin/python) — system python3 lacks ibapi
+- [Phase 03]: _trigger_reconnect uses lock-guarded _reconnecting flag to prevent duplicate reconnect thread spawns
+- [Phase 03]: 03-2 tests permanently unskipped (not re-skipped) — 7 tests now pass with miniconda3 python
 
 ### Pending Todos
 
@@ -95,7 +99,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-10T08:14:09.328Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-05-10T08:18:47.934Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None
 Next action: /gsd:execute-phase 3
