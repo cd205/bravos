@@ -356,14 +356,178 @@ class IBApp(EWrapper, EClient):
         """
         self._trigger_reconnect("initial_connect_failed")
 
-    # ── Plan 03-3 stubs (reconciliation callbacks + snapshot write) ────────
+    # ── Plan 03-3: EWrapper reconciliation callbacks ───────────────────────
 
-    def run_startup_reconciliation(self, db_conn) -> None:
+    def position(self, account: str, contract, position: float, avgCost: float) -> None:
         """
-        After connect_and_run(), fetch positions/orders/account from IBKR
-        and reconcile against the DB.
+        Called once per position held in the account.
+
+        Appends STK (equity) positions only — v1 scope. Non-STK secTypes
+        (OPT, FUT, etc.) are silently ignored.
+        Never blocks — only appends to list; _positions_done is set in positionEnd().
         """
-        raise NotImplementedError("Implemented in Plan 03-3")
+        if contract.secType != "STK":
+            return
+        self._positions.append({
+            "ticker": contract.symbol,
+            "position": int(position),
+            "avg_cost": avgCost,
+        })
+
+    def positionEnd(self) -> None:
+        """
+        Called by IB Gateway after all position() callbacks have fired.
+
+        Sets _positions_done so run_startup_reconciliation() can proceed.
+        """
+        self._positions_done.set()
+        logger.info("reqPositions complete — %d positions received", len(self._positions))
+
+    def openOrder(self, orderId: int, contract, order, orderState) -> None:
+        """
+        Called once per open order (fired in response to reqAllOpenOrders).
+
+        Appends a summary dict to _open_orders. Never blocks.
+        """
+        self._open_orders.append({
+            "order_id": orderId,
+            "ticker": contract.symbol,
+            "action": order.action,
+            "quantity": order.totalQuantity,
+            "status": orderState.status,
+        })
+
+    def openOrderEnd(self) -> None:
+        """
+        Called by IB Gateway after all openOrder() callbacks have fired.
+
+        Sets _orders_done so run_startup_reconciliation() can proceed.
+        """
+        self._orders_done.set()
+        logger.info("reqOpenOrders complete — %d open orders received", len(self._open_orders))
+
+    def accountSummary(self, reqId: int, account: str, tag: str, value: str, currency: str) -> None:
+        """
+        Called once per requested tag (NetLiquidation, TotalCashValue, AvailableFunds).
+
+        Stores raw value string keyed by tag name. Never blocks.
+        """
+        self._account_summary[tag] = value
+
+    def accountSummaryEnd(self, reqId: int) -> None:
+        """
+        Called by IB Gateway after all accountSummary() callbacks have fired.
+
+        Sets _summary_done so run_startup_reconciliation() can proceed.
+        """
+        self._summary_done.set()
+        logger.info("reqAccountSummary complete — %d tags received", len(self._account_summary))
+
+    # ── Plan 03-3: run_startup_reconciliation ─────────────────────────────
+
+    def run_startup_reconciliation(self, db_conn, timeout: float = 30) -> bool:
+        """
+        After connect_and_run(), fetch positions/orders/account from IBKR,
+        write a snapshot, and reconcile against the DB.
+
+        Returns True if all three callbacks completed within `timeout` seconds,
+        False if a timeout occurred (partial data still used for snapshot/reconcile).
+        """
+        # 1. Clear accumulators
+        self._positions.clear()
+        self._open_orders.clear()
+        self._account_summary.clear()
+
+        # 2. Clear sync events
+        self._positions_done.clear()
+        self._orders_done.clear()
+        self._summary_done.clear()
+
+        # 3. Issue all three requests concurrently (callbacks fire on ibkr-api thread)
+        self.reqPositions()
+        self.reqAllOpenOrders()
+        self.reqAccountSummary(REQ_ID_ACCOUNT_SUMMARY, "All", "NetLiquidation,TotalCashValue,AvailableFunds")
+
+        # 4. Wait for all three events
+        all_done = (
+            self._positions_done.wait(timeout) and
+            self._orders_done.wait(timeout) and
+            self._summary_done.wait(timeout)
+        )
+
+        # 5. Log if timed out
+        if not all_done:
+            logger.error("Reconciliation timed out — partial data used for snapshot")
+
+        # 6. Write snapshot (always, even on partial data)
+        _write_position_snapshot(db_conn, self._positions)
+
+        # 7. Reconcile against DB (always)
+        _reconcile_against_db(db_conn, self._positions, self._open_orders)
+
+        return all_done
+
+
+# ── Plan 03-3: Module-level helper functions ───────────────────────────────
+
+
+def _write_position_snapshot(db_conn, positions: list[dict]) -> None:
+    """
+    Insert one row per position into broker_positions_snapshot.
+
+    Does NOT populate market_value — no live prices at reconciliation time.
+    Commits after all inserts. Safe to call with an empty positions list.
+    """
+    with db_conn.cursor() as cur:
+        for pos in positions:
+            cur.execute(
+                "INSERT INTO broker_positions_snapshot (ticker, position, avg_cost, snapshot_at)"
+                " VALUES (%s, %s, %s, NOW())",
+                (pos["ticker"], pos["position"], pos["avg_cost"]),
+            )
+    db_conn.commit()
+    logger.info("Wrote %d position rows to broker_positions_snapshot", len(positions))
+
+
+def _reconcile_against_db(db_conn, ibkr_positions: list[dict], ibkr_orders: list[dict]) -> None:
+    """
+    Compare IBKR positions against open lots in position_lots.
+
+    Logs WARNING for any quantity mismatch. NEVER writes to position_lots (D-08).
+    """
+    ibkr_pos_map = {p["ticker"]: p["position"] for p in ibkr_positions}
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT ticker, SUM(quantity) FROM position_lots"
+            " WHERE lot_closed_at IS NULL GROUP BY ticker"
+        )
+        db_open = {row[0]: row[1] for row in cur.fetchall()}
+
+    # Check DB lots against IBKR
+    for ticker, db_qty in db_open.items():
+        ibkr_qty = ibkr_pos_map.get(ticker, 0)
+        if db_qty != ibkr_qty:
+            logger.warning(
+                "RECONCILE MISMATCH ticker=%s db_open_qty=%s ibkr_qty=%s"
+                " — operator review required",
+                ticker,
+                db_qty,
+                ibkr_qty,
+            )
+
+    # Check IBKR positions not in DB
+    for ticker, qty in ibkr_pos_map.items():
+        if ticker not in db_open and qty != 0:
+            logger.warning(
+                "RECONCILE IBKR HAS POSITION NOT IN DB ticker=%s ibkr_qty=%s"
+                " — operator review required",
+                ticker,
+                qty,
+            )
+
+    # D-08: never write to position_lots
+    logger.info("Reconciliation complete — DB not modified (D-08)")
 
 
 # ── Module-level singleton ─────────────────────────────────────────────────

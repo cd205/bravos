@@ -201,7 +201,6 @@ def test_reconnect_backoff_delays():
 
 # ── Plan 03-3: Startup reconciliation callbacks + snapshot write ────────────
 
-@pytest.mark.skip(reason="plan: 03-3")
 def test_position_end_sets_event():
     """positionEnd() callback sets _positions_done threading.Event."""
     from bravos.broker.connection import IBApp
@@ -211,7 +210,6 @@ def test_position_end_sets_event():
     assert app._positions_done.is_set()
 
 
-@pytest.mark.skip(reason="plan: 03-3")
 def test_position_callback_appends_stk_positions():
     """position() callback appends STK positions to _positions list."""
     from bravos.broker.connection import IBApp
@@ -229,7 +227,6 @@ def test_position_callback_appends_stk_positions():
     assert app._positions[0]["avg_cost"] == 150.25
 
 
-@pytest.mark.skip(reason="plan: 03-3")
 def test_open_order_end_sets_event():
     """openOrderEnd() callback sets _orders_done threading.Event."""
     from bravos.broker.connection import IBApp
@@ -239,7 +236,6 @@ def test_open_order_end_sets_event():
     assert app._orders_done.is_set()
 
 
-@pytest.mark.skip(reason="plan: 03-3")
 def test_open_order_callback_appends_orders():
     """openOrder() callback appends order dict to _open_orders list."""
     from bravos.broker.connection import IBApp
@@ -261,7 +257,6 @@ def test_open_order_callback_appends_orders():
     assert app._open_orders[0]["action"] == "BUY"
 
 
-@pytest.mark.skip(reason="plan: 03-3")
 def test_account_summary_end_sets_event():
     """accountSummaryEnd() callback sets _summary_done threading.Event."""
     from bravos.broker.connection import IBApp
@@ -271,7 +266,6 @@ def test_account_summary_end_sets_event():
     assert app._summary_done.is_set()
 
 
-@pytest.mark.skip(reason="plan: 03-3")
 def test_position_snapshot_written(db_connection):
     """_write_position_snapshot inserts rows into broker_positions_snapshot."""
     from bravos.broker.connection import _write_position_snapshot
@@ -295,7 +289,6 @@ def test_position_snapshot_written(db_connection):
     assert after == before + 2
 
 
-@pytest.mark.skip(reason="plan: 03-3")
 def test_reconcile_mismatch_logs_warning(caplog):
     """_reconcile_against_db logs WARNING when IBKR qty != DB open lot qty."""
     import logging
@@ -321,7 +314,6 @@ def test_reconcile_mismatch_logs_warning(caplog):
     assert any("RECONCILE MISMATCH" in r.message for r in caplog.records)
 
 
-@pytest.mark.skip(reason="plan: 03-3")
 def test_reconcile_no_db_write_on_mismatch(db_connection):
     """_reconcile_against_db never writes to position_lots on mismatch (D-08)."""
     from bravos.broker.connection import _reconcile_against_db
