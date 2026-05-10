@@ -98,7 +98,6 @@ def test_stop_sets_stop_event_and_clears_connected():
 
 # ── Plan 03-2: Heartbeat + reconnect ───────────────────────────────────────
 
-@pytest.mark.skip(reason="plan: 03-2")
 def test_current_time_updates_last_heartbeat_at():
     """currentTime() callback updates _last_heartbeat_at to current monotonic time."""
     from bravos.broker.connection import IBApp
@@ -108,7 +107,6 @@ def test_current_time_updates_last_heartbeat_at():
     assert app._last_heartbeat_at >= before
 
 
-@pytest.mark.skip(reason="plan: 03-2")
 def test_heartbeat_timeout_triggers_reconnect(monkeypatch):
     """_heartbeat_loop triggers _trigger_reconnect when heartbeat is stale > 10s."""
     from bravos.broker.connection import IBApp
@@ -136,7 +134,6 @@ def test_heartbeat_timeout_triggers_reconnect(monkeypatch):
     assert reconnect_called.is_set()
 
 
-@pytest.mark.skip(reason="plan: 03-2")
 def test_error_504_triggers_reconnect(monkeypatch):
     """error(504) triggers immediate reconnect (CLOSE-WAIT / not connected)."""
     from bravos.broker.connection import IBApp
@@ -149,7 +146,6 @@ def test_error_504_triggers_reconnect(monkeypatch):
     assert reconnect_called.is_set()
 
 
-@pytest.mark.skip(reason="plan: 03-2")
 def test_error_1100_triggers_reconnect(monkeypatch):
     """error(1100) triggers immediate reconnect (connectivity lost)."""
     from bravos.broker.connection import IBApp
@@ -162,7 +158,6 @@ def test_error_1100_triggers_reconnect(monkeypatch):
     assert reconnect_called.is_set()
 
 
-@pytest.mark.skip(reason="plan: 03-2")
 def test_error_2104_is_ignored(monkeypatch):
     """error(2104) — market data farm status — does NOT trigger reconnect."""
     from bravos.broker.connection import IBApp
@@ -175,7 +170,6 @@ def test_error_2104_is_ignored(monkeypatch):
     assert not reconnect_called.is_set()
 
 
-@pytest.mark.skip(reason="plan: 03-2")
 def test_trigger_reconnect_does_not_spawn_duplicate_thread(monkeypatch):
     """_trigger_reconnect is a no-op if _reconnecting is already True (guard against races)."""
     from bravos.broker.connection import IBApp
@@ -198,7 +192,6 @@ def test_trigger_reconnect_does_not_spawn_duplicate_thread(monkeypatch):
     assert len(threads_started) == 0  # no new thread spawned
 
 
-@pytest.mark.skip(reason="plan: 03-2")
 def test_reconnect_backoff_delays():
     """_RETRY_DELAYS list has 5 elements: [5, 10, 20, 40, 80] — matches D-07."""
     from bravos.broker import connection as conn_module

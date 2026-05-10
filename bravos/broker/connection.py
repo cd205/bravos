@@ -231,28 +231,130 @@ class IBApp(EWrapper, EClient):
                 errorString,
             )
 
-    # ── Plan 03-2 stubs (heartbeat + reconnect) ────────────────────────────
+    # ── Plan 03-2: Heartbeat monitor ───────────────────────────────────────
+
+    def start_heartbeat_monitor(self) -> None:
+        """
+        Start the heartbeat daemon thread.
+
+        Must be called AFTER connect_and_run() succeeds. Called explicitly
+        by run_ingestion.py (Plan 4).
+        """
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop,
+            name="ibkr-heartbeat",
+            daemon=True,
+        )
+        self._heartbeat_thread.start()
+        logger.info("Heartbeat monitor started (interval=%ss, timeout=%ss)", HEARTBEAT_INTERVAL, HEARTBEAT_TIMEOUT)
+
+    def _heartbeat_loop(self) -> None:
+        """
+        Background loop that sends reqCurrentTime every HEARTBEAT_INTERVAL seconds.
+
+        Exits cleanly when _stop_event is set. Skips the heartbeat check
+        when disconnected — the reconnect thread handles recovery.
+        """
+        while not self._stop_event.wait(timeout=HEARTBEAT_INTERVAL):
+            if not self._connected.is_set():
+                continue  # disconnected — reconnect thread handles recovery
+
+            self.reqCurrentTime()
+            time.sleep(HEARTBEAT_TIMEOUT)
+
+            elapsed = time.monotonic() - self._last_heartbeat_at
+            if elapsed > HEARTBEAT_TIMEOUT:
+                logger.warning(
+                    "Heartbeat timeout: no response in %.1fs (threshold=%ss) — triggering reconnect",
+                    elapsed,
+                    HEARTBEAT_TIMEOUT,
+                )
+                self._trigger_reconnect("heartbeat_timeout")
+
+    # ── Plan 03-2: Reconnect state machine ─────────────────────────────────
 
     def _trigger_reconnect(self, reason: str) -> None:
         """
         Trigger a background reconnect.
 
-        Plan 03-2 implementation. Guard: if _reconnecting is already True,
-        this is a no-op to prevent duplicate reconnect threads.
+        Guard: if _reconnecting is already True, this is a no-op to prevent
+        duplicate reconnect threads. Non-blocking — returns immediately.
         """
-        raise NotImplementedError("Implemented in Plan 03-2")
+        with self._recon_lock:
+            if self._reconnecting:
+                logger.debug("_trigger_reconnect(%s) — already reconnecting, skipping", reason)
+                return
+            self._reconnecting = True
 
-    def _heartbeat_loop(self) -> None:
-        """Background loop that sends reqCurrentTime every HEARTBEAT_INTERVAL seconds."""
-        raise NotImplementedError("Implemented in Plan 03-2")
+        recon_thread = threading.Thread(
+            target=self._reconnect_loop,
+            args=(reason,),
+            name="ibkr-reconnect",
+            daemon=True,
+        )
+        recon_thread.start()
 
-    def _reconnect_loop(self) -> None:
-        """Background loop that retries connection with exponential backoff."""
-        raise NotImplementedError("Implemented in Plan 03-2")
+    def _reconnect_loop(self, reason: str) -> None:
+        """
+        Background daemon thread: reconnect with exponential backoff.
 
-    def start_heartbeat_monitor(self) -> None:
-        """Start the heartbeat daemon thread."""
-        raise NotImplementedError("Implemented in Plan 03-2")
+        Tries _RETRY_DELAYS[0..4] (5, 10, 20, 40, 80s), then retries every
+        60s forever until either connected or _stop_event is set.
+        """
+        attempt = 0
+        while not self._stop_event.is_set():
+            delay = _RETRY_DELAYS[attempt] if attempt < len(_RETRY_DELAYS) else 60
+
+            logger.info(
+                "Reconnect attempt %s (reason=%s): waiting %ss before retry",
+                attempt + 1,
+                reason,
+                delay,
+            )
+
+            self._connected.clear()
+
+            try:
+                self.disconnect()
+            except Exception:
+                pass
+
+            # CLOSE-WAIT drain window (D-06)
+            time.sleep(5)
+            # Remaining backoff (ensure non-negative)
+            time.sleep(max(0, delay - 5))
+
+            if self._stop_event.is_set():
+                break
+
+            success = self.connect_and_run()
+            if success:
+                logger.info("IBApp reconnected on attempt %s (reason=%s)", attempt + 1, reason)
+                with self._recon_lock:
+                    self._reconnecting = False
+                return
+
+            attempt += 1
+
+            if attempt == len(_RETRY_DELAYS):
+                logger.critical(
+                    "Reconnect failed after %s attempts (reason=%s) — retrying every 60s forever",
+                    len(_RETRY_DELAYS),
+                    reason,
+                )
+
+        # _stop_event was set — clean up
+        with self._recon_lock:
+            self._reconnecting = False
+        logger.info("Reconnect loop exiting: stop event set")
+
+    def start_background_reconnect(self) -> None:
+        """
+        Trigger a background reconnect for the initial-connect-failed case.
+
+        Used by Plan 4 when the first connect_and_run() call returns False.
+        """
+        self._trigger_reconnect("initial_connect_failed")
 
     # ── Plan 03-3 stubs (reconciliation callbacks + snapshot write) ────────
 
