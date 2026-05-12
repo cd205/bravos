@@ -36,6 +36,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import schedule
 
+import bravos.broker.connection as broker_module
+from bravos.broker.connection import IBApp
+from bravos.config import settings
 from bravos.config.settings import SCRAPE_INTERVAL_SECONDS
 from bravos.ingestion.scraper import BravosScraper
 
@@ -49,6 +52,20 @@ logger = logging.getLogger("bravos.ingestion.daemon")
 
 _shutdown = False
 _scraper: BravosScraper | None = None
+
+
+def _get_db_connection():
+    """Open a psycopg2 connection for reconciliation. Closed after use."""
+    import psycopg2
+    import os
+    password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
+    return psycopg2.connect(
+        host=settings.DB_HOST,
+        port=settings.DB_PORT,
+        dbname=settings.DB_NAME,
+        user=settings.DB_USER,
+        password=password,
+    )
 
 
 def handle_shutdown(signum, frame):
@@ -87,6 +104,43 @@ def main():
     signal.signal(signal.SIGTERM, handle_shutdown)
     signal.signal(signal.SIGINT, handle_shutdown)
 
+    # ── IBKR startup (Phase 3) ────────────────────────────────────────────────
+    logger.info(
+        "Starting IBKR connection — mode=%s host=%s port=%d client_id=%d",
+        settings.TRADING_MODE,
+        settings.IBKR_HOST,
+        settings.get_ibkr_port(),
+        settings.IBKR_CLIENT_ID,
+    )
+    _ibapp = IBApp(
+        host=settings.IBKR_HOST,
+        port=settings.get_ibkr_port(),
+        client_id=settings.IBKR_CLIENT_ID,
+    )
+    broker_module.ibapp = _ibapp
+
+    ibkr_ok = _ibapp.connect_and_run(timeout=30)
+    if ibkr_ok:
+        logger.info("IBKR connected — running startup reconciliation")
+        try:
+            _db_conn = _get_db_connection()
+            _ibapp.run_startup_reconciliation(_db_conn, timeout=30)
+            _db_conn.close()
+        except Exception:
+            logger.exception("Startup reconciliation failed — continuing without reconciliation")
+        _ibapp.start_heartbeat_monitor()
+        logger.info("IBKR ready — heartbeat monitor started")
+    else:
+        logger.critical(
+            "IBKR initial connect failed (mode=%s port=%d) — "
+            "starting ingestion without IBKR (D-14). "
+            "Orders will not be placed until connection is established.",
+            settings.TRADING_MODE,
+            settings.get_ibkr_port(),
+        )
+        _ibapp.start_background_reconnect()
+    # ── End IBKR startup ──────────────────────────────────────────────────────
+
     logger.info("Starting ingestion daemon...")
     _scraper = BravosScraper()
     _scraper.startup()
@@ -105,6 +159,9 @@ def main():
 
     # Graceful cleanup
     logger.info("Shutting down — closing Chrome driver")
+    if broker_module.ibapp is not None:
+        logger.info("Stopping IBKR connection...")
+        broker_module.ibapp.stop()
     _scraper.shutdown()
     logger.info("Ingestion daemon stopped")
 
