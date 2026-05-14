@@ -202,8 +202,15 @@ class BravosScraper:
             "text": body_el.text,
         }
 
-    def _store_signal(self, signal_data: dict):
-        """Insert signal into DB. ON CONFLICT DO NOTHING for dedup (per D-05, AUDIT-06)."""
+    def _store_signal(self, signal_data: dict) -> int | None:
+        """Insert signal into DB. ON CONFLICT DO NOTHING for dedup (per D-05, AUDIT-06).
+
+        Returns the inserted signal id (int) when a new row was created, or None
+        when the post_url already existed (ON CONFLICT DO NOTHING suppresses the row,
+        and RETURNING id therefore returns no rows — see RESEARCH Pitfall 4).
+        Phase 4 D-12: process_alert uses the return value to gate the call to
+        execute_signal so duplicate posts do not re-trigger the order path.
+        """
         import psycopg2
         password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
         conn = psycopg2.connect(
@@ -223,6 +230,7 @@ class BravosScraper:
                        parse_method, scraped_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     ON CONFLICT (post_url) DO NOTHING
+                    RETURNING id
                     """,
                     (
                         signal_data["post_url"], signal_data["post_title"],
@@ -232,9 +240,11 @@ class BravosScraper:
                         signal_data.get("confidence"), signal_data.get("parse_method"),
                     )
                 )
+                row = cur.fetchone()
             conn.commit()
         finally:
             conn.close()
+        return row[0] if row else None
 
     @catch_cycle_exceptions
     def process_alert(self, url: str):
@@ -256,10 +266,33 @@ class BravosScraper:
             "raw_html": content["raw_html"],
             **parsed,
         }
-        self._store_signal(signal_data)
-        logger.info("Processed: %s -> ticker=%s action=%s confidence=%s",
+        signal_id = self._store_signal(signal_data)
+        logger.info("Processed: %s -> ticker=%s action=%s confidence=%s signal_id=%s",
                      content["title"][:60], parsed.get("ticker"),
-                     parsed.get("action_type"), parsed.get("confidence"))
+                     parsed.get("action_type"), parsed.get("confidence"), signal_id)
+
+        # Phase 4 D-12: route stored signal to the order path.
+        # Confidence pre-check here is defensive redundancy — execute_signal applies
+        # its own guards internally (confidence='high', valid action_type, ibapp
+        # connected, risk gate pass). Duplicate posts (signal_id is None) and
+        # low-confidence parses are NOT re-routed — RESEARCH Pitfall 4 / Pattern 8.
+        if signal_id is not None and parsed.get("confidence") == "high":
+            from bravos.execution.executor import execute_signal
+            import psycopg2
+            password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
+            exec_conn = psycopg2.connect(
+                host=settings.DB_HOST,
+                port=settings.DB_PORT,
+                dbname=settings.DB_NAME,
+                user=settings.DB_USER,
+                password=password,
+            )
+            try:
+                execute_signal(signal_id, exec_conn)
+            except Exception:
+                logger.exception("execute_signal raised for signal_id=%s — continuing", signal_id)
+            finally:
+                exec_conn.close()
 
     def shutdown(self):
         """Graceful shutdown — quit Chrome driver (SIGTERM handler)."""
