@@ -88,6 +88,20 @@ class IBApp(EWrapper, EClient):
         self._orders_done = threading.Event()
         self._summary_done = threading.Event()
 
+        # ── Phase 4: price-tick routing (for executor._fetch_price) ──────
+        self._tick_events: dict[int, dict] = {}
+        self._tick_lock = threading.Lock()
+        self._mkt_req_counter = 2000  # avoids collision with REQ_ID_ACCOUNT_SUMMARY=9001
+
+        # ── Phase 4: order-status routing (for executor._submit_order) ───
+        self._order_status_events: dict[int, dict] = {}
+
+        # ── Phase 4: account name (populated by managedAccounts; used by reqPnL) ──
+        self._account_name: str = ""
+
+        # ── Phase 4: daily P&L for circuit breaker (populated by pnl callback) ──
+        self._daily_pnl: float | None = None
+
         # Shutdown control
         self._stop_event = threading.Event()
 
