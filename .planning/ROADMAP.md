@@ -79,7 +79,13 @@ Plans:
   3. No order is submitted outside NYSE regular trading hours (09:30–16:00 ET)
   4. Order share quantity is calculated as abs(new_weight - old_weight) × weight_pct × account_net_liquidation / current_price, using account value fetched from IBKR at execution time
   5. Order records are written to the database with status PENDING_SUBMISSION before placeOrder() is called; order status transitions are tracked through ibapi callbacks
-**Plans**: TBD
+**Plans**: 5 plans
+Plans:
+- [ ] 04-01-PLAN.md — Wave 1: DB migration (risk_gate_log) + risk constants in settings + empty package inits + Wave 0 test stubs
+- [ ] 04-02-PLAN.md — Wave 1: IBApp callback extensions (managedAccounts, tickPrice, orderStatus, pnl) + state attributes
+- [ ] 04-03-PLAN.md — Wave 2: RiskGate class implementation + unskip 8 plan-04-03 tests
+- [ ] 04-04-PLAN.md — Wave 2: Executor module (execute_signal, price fetch, sizing, order submission) + unskip 7 plan-04-04 tests
+- [ ] 04-05-PLAN.md — Wave 3: Scraper integration (RETURNING id + execute_signal call) + run_ingestion.py reqPnL subscription
 
 ### Phase 5: Fill Capture and Position Reconciliation
 **Goal**: The system correctly captures every fill (including partial fills), maintains accurate per-lot position state with FIFO assignment, and periodically reconciles internal state against IBKR's authoritative position data
