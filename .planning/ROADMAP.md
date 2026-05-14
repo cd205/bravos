@@ -83,8 +83,8 @@ Plans:
 Plans:
 - [x] 04-01-PLAN.md — Wave 1: DB migration (risk_gate_log) + risk constants in settings + empty package inits + Wave 0 test stubs
 - [x] 04-02-PLAN.md — Wave 1: IBApp callback extensions (managedAccounts, tickPrice, orderStatus, pnl) + state attributes
-- [ ] 04-03-PLAN.md — Wave 2: RiskGate class implementation + unskip 8 plan-04-03 tests
-- [ ] 04-04-PLAN.md — Wave 2: Executor module (execute_signal, price fetch, sizing, order submission) + unskip 7 plan-04-04 tests
+- [x] 04-03-PLAN.md — Wave 2: RiskGate class implementation + unskip 8 plan-04-03 tests
+- [x] 04-04-PLAN.md — Wave 2: Executor module (execute_signal, price fetch, sizing, order submission) + unskip 7 plan-04-04 tests
 - [ ] 04-05-PLAN.md — Wave 3: Scraper integration (RETURNING id + execute_signal call) + run_ingestion.py reqPnL subscription
 
 ### Phase 5: Fill Capture and Position Reconciliation
