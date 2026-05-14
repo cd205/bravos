@@ -20,6 +20,12 @@ BRAVOS_BASE_URL = "https://bravosresearch.com"
 # Trading
 TRADING_MODE = os.environ.get("TRADING_MODE", "paper")  # "paper" or "live"
 
+# Risk controls — configurable per deployment (Phase 4)
+MAX_OPEN_POSITIONS   = int(os.environ.get("MAX_OPEN_POSITIONS", "20"))           # max concurrent open positions (RISK-01)
+MAX_ALLOCATION_PCT   = float(os.environ.get("MAX_ALLOCATION_PCT", "0.25"))       # 25% max per trade as fraction of NLV (RISK-02)
+DAILY_LOSS_THRESHOLD = float(os.environ.get("DAILY_LOSS_THRESHOLD", "-5000.0"))  # -$5,000 circuit breaker (RISK-03)
+WEIGHT_PCT_PER_UNIT  = float(os.environ.get("WEIGHT_PCT_PER_UNIT", "0.05"))      # 5% NLV per weight unit (EXEC-01)
+
 # Scraping — URLs and selectors (confirmed via selector discovery 2026-05-08)
 LOGIN_URL = f"{BRAVOS_BASE_URL}/my-account/"
 # Post body selector confirmed against live post page
