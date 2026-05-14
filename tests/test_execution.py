@@ -178,7 +178,6 @@ def test_gate_log_block(db_connection):
 
 # ── Plan 04-04: Executor — quantity formula, order build, DB transitions ────
 
-@pytest.mark.skip(reason="plan: 04-04")
 def test_quantity_formula():
     """EXEC-01: quantity = abs(delta_weight) × WEIGHT_PCT_PER_UNIT × NLV / price, rounded down."""
     from bravos.execution.executor import _calculate_quantity
@@ -191,7 +190,6 @@ def test_quantity_formula():
     assert qty == 100
 
 
-@pytest.mark.skip(reason="plan: 04-04")
 def test_quantity_zero_skipped():
     """quantity=0 must be detected as invalid before placeOrder."""
     from bravos.execution.executor import _calculate_quantity
@@ -204,7 +202,6 @@ def test_quantity_zero_skipped():
     assert qty == 0
 
 
-@pytest.mark.skip(reason="plan: 04-04")
 def test_build_order_buy():
     """EXEC-02: 'open' and 'add' action types build BUY MKT DAY orders."""
     from bravos.execution.executor import _build_order
@@ -217,7 +214,6 @@ def test_build_order_buy():
     assert order.transmit is True
 
 
-@pytest.mark.skip(reason="plan: 04-04")
 def test_build_order_sell():
     """EXEC-02: 'partial_close' and 'close' action types build SELL MKT DAY orders."""
     from bravos.execution.executor import _build_order
@@ -228,7 +224,6 @@ def test_build_order_sell():
     assert order.totalQuantity == 50
 
 
-@pytest.mark.skip(reason="plan: 04-04")
 def test_order_db_write_pending(db_connection):
     """EXEC-04 / D-08: orders row inserted with status='PENDING_SUBMISSION' BEFORE placeOrder is called."""
     from bravos.execution.executor import _submit_order
@@ -260,7 +255,6 @@ def test_order_db_write_pending(db_connection):
     assert captured_status["status"] == "PENDING_SUBMISSION"
 
 
-@pytest.mark.skip(reason="plan: 04-04")
 def test_order_status_submitted(db_connection):
     """EXEC-04: DB status transitions to SUBMITTED when orderStatus callback fires with 'Submitted'."""
     from bravos.execution.executor import _submit_order
@@ -292,7 +286,6 @@ def test_order_status_submitted(db_connection):
         assert cur.fetchone()[0] == "SUBMITTED"
 
 
-@pytest.mark.skip(reason="plan: 04-04")
 def test_order_status_rejected(db_connection):
     """EXEC-04: DB status transitions to REJECTED when orderStatus callback fires with 'Inactive'."""
     from bravos.execution.executor import _submit_order
