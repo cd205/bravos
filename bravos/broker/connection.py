@@ -437,6 +437,88 @@ class IBApp(EWrapper, EClient):
         self._summary_done.set()
         logger.info("reqAccountSummary complete — %d tags received", len(self._account_summary))
 
+    # ── Phase 4: Order execution + risk callbacks ──────────────────────────
+
+    def managedAccounts(self, accountsList: str) -> None:
+        """
+        Called by IB Gateway during the handshake with a comma-separated list
+        of account IDs visible to this clientId.
+
+        Fires BEFORE nextValidId in the connect handshake (per RESEARCH Pitfall 3).
+        Stores the first account name on _account_name so reqPnL can subscribe
+        with a non-empty account string.
+        """
+        self._account_name = accountsList.split(",")[0].strip()
+        logger.info("managedAccounts: account=%s", self._account_name)
+
+    def tickPrice(self, reqId: int, tickType: int, price: float, attrib) -> None:
+        """
+        Route a tick price to the executor thread waiting on _tick_events[reqId].
+
+        Tick types we care about (live + delayed):
+          4  = Last       (live)
+          9  = Close      (live)
+          68 = Delayed Last
+          76 = Delayed Close
+        Other tick types (bid/ask/etc.) are ignored. Negative/zero prices are
+        ignored (IBKR sends -1.0 as a "no data" sentinel).
+
+        Per RESEARCH Pitfall 2: with reqMarketDataType(3), IBKR sends 68/76
+        (NOT 4/9). Both sets must be handled for live+delayed compatibility.
+        """
+        PRICE_TICK_TYPES = {4, 9, 68, 76}
+        if tickType not in PRICE_TICK_TYPES:
+            return
+        if price <= 0:
+            return
+        with self._tick_lock:
+            slot = self._tick_events.get(reqId)
+            if slot is not None:
+                slot["price"] = price
+                slot["event"].set()
+
+    def orderStatus(
+        self,
+        orderId: int,
+        status: str,
+        filled: float,
+        remaining: float,
+        avgFillPrice: float,
+        permId: int,
+        parentId: int,
+        lastFillPrice: float,
+        clientId: int,
+        whyHeld: str,
+        mktCapPrice: float,
+    ) -> None:
+        """
+        Called by IB Gateway whenever an order's state changes.
+
+        Phase 4 scope: route the status string to the executor thread waiting
+        on _order_status_events[orderId]. The executor maps IBKR status strings
+        (PreSubmitted/Submitted/Inactive) to DB values (SUBMITTED/REJECTED).
+
+        Phase 5 will extend this for fill capture (status='Filled'/'PartiallyFilled'
+        with filled/remaining/avgFillPrice).
+        """
+        logger.info(
+            "orderStatus orderId=%s status=%s filled=%s remaining=%s",
+            orderId, status, filled, remaining,
+        )
+        slot = self._order_status_events.get(orderId)
+        if slot is not None:
+            slot["status"] = status
+            slot["event"].set()
+
+    def pnl(self, reqId: int, dailyPnL: float, unrealizedPnL: float, realizedPnL: float) -> None:
+        """
+        Called continuously by IB Gateway while reqPnL subscription is active.
+
+        Stores dailyPnL on _daily_pnl for the risk gate's circuit breaker check.
+        No log per call — this fires every few seconds and would be noisy.
+        """
+        self._daily_pnl = dailyPnL
+
     # ── Plan 03-3: run_startup_reconciliation ─────────────────────────────
 
     def run_startup_reconciliation(self, db_conn, timeout: float = 30) -> bool:
