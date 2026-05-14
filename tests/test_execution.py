@@ -17,7 +17,6 @@ import pytest
 
 # ── Plan 04-03: RiskGate — market hours, max positions, allocation, circuit breaker ──
 
-@pytest.mark.skip(reason="plan: 04-03")
 def test_market_hours_gate_blocks():
     """RiskGate blocks outside 09:30–16:00 ET (e.g. Saturday or 8am ET)."""
     from bravos.risk.gate import RiskGate, _is_market_hours
@@ -30,7 +29,6 @@ def test_market_hours_gate_blocks():
         assert _is_market_hours() is False
 
 
-@pytest.mark.skip(reason="plan: 04-03")
 def test_market_hours_gate_passes():
     """RiskGate allows orders within 09:30–16:00 ET on a weekday."""
     from bravos.risk.gate import _is_market_hours
@@ -42,7 +40,6 @@ def test_market_hours_gate_passes():
         assert _is_market_hours() is True
 
 
-@pytest.mark.skip(reason="plan: 04-03")
 def test_gate_max_positions():
     """Gate blocks new entries when open_positions >= MAX_OPEN_POSITIONS."""
     from bravos.risk.gate import RiskGate
@@ -64,7 +61,6 @@ def test_gate_max_positions():
     assert "max_positions" in reason
 
 
-@pytest.mark.skip(reason="plan: 04-03")
 def test_gate_max_allocation():
     """Gate blocks when (delta_weight × WEIGHT_PCT_PER_UNIT) > MAX_ALLOCATION_PCT."""
     from bravos.risk.gate import RiskGate
@@ -85,7 +81,6 @@ def test_gate_max_allocation():
     assert "max_allocation" in reason
 
 
-@pytest.mark.skip(reason="plan: 04-03")
 def test_gate_circuit_breaker():
     """Gate blocks when ibapp._daily_pnl < DAILY_LOSS_THRESHOLD."""
     from bravos.risk.gate import RiskGate
@@ -105,7 +100,6 @@ def test_gate_circuit_breaker():
     assert "circuit_breaker" in reason
 
 
-@pytest.mark.skip(reason="plan: 04-03")
 def test_gate_circuit_none_pnl():
     """Gate passes circuit-breaker check when _daily_pnl is None (not yet received from reqPnL)."""
     from bravos.risk.gate import RiskGate
@@ -125,7 +119,6 @@ def test_gate_circuit_none_pnl():
     assert reason == "pass"
 
 
-@pytest.mark.skip(reason="plan: 04-03")
 def test_gate_log_pass(db_connection):
     """A passing gate decision writes a row to risk_gate_log with gate_passed=True."""
     from bravos.risk.gate import RiskGate
@@ -154,7 +147,6 @@ def test_gate_log_pass(db_connection):
     assert row[1] == "pass"
 
 
-@pytest.mark.skip(reason="plan: 04-03")
 def test_gate_log_block(db_connection):
     """A blocked gate decision writes a row to risk_gate_log with gate_passed=False and the block reason."""
     from bravos.risk.gate import RiskGate
