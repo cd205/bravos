@@ -81,8 +81,8 @@ Plans:
   5. Order records are written to the database with status PENDING_SUBMISSION before placeOrder() is called; order status transitions are tracked through ibapi callbacks
 **Plans**: 5 plans
 Plans:
-- [ ] 04-01-PLAN.md — Wave 1: DB migration (risk_gate_log) + risk constants in settings + empty package inits + Wave 0 test stubs
-- [ ] 04-02-PLAN.md — Wave 1: IBApp callback extensions (managedAccounts, tickPrice, orderStatus, pnl) + state attributes
+- [x] 04-01-PLAN.md — Wave 1: DB migration (risk_gate_log) + risk constants in settings + empty package inits + Wave 0 test stubs
+- [x] 04-02-PLAN.md — Wave 1: IBApp callback extensions (managedAccounts, tickPrice, orderStatus, pnl) + state attributes
 - [ ] 04-03-PLAN.md — Wave 2: RiskGate class implementation + unskip 8 plan-04-03 tests
 - [ ] 04-04-PLAN.md — Wave 2: Executor module (execute_signal, price fetch, sizing, order submission) + unskip 7 plan-04-04 tests
 - [ ] 04-05-PLAN.md — Wave 3: Scraper integration (RETURNING id + execute_signal call) + run_ingestion.py reqPnL subscription
