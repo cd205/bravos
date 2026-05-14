@@ -85,7 +85,7 @@ Plans:
 - [x] 04-02-PLAN.md — Wave 1: IBApp callback extensions (managedAccounts, tickPrice, orderStatus, pnl) + state attributes
 - [x] 04-03-PLAN.md — Wave 2: RiskGate class implementation + unskip 8 plan-04-03 tests
 - [x] 04-04-PLAN.md — Wave 2: Executor module (execute_signal, price fetch, sizing, order submission) + unskip 7 plan-04-04 tests
-- [ ] 04-05-PLAN.md — Wave 3: Scraper integration (RETURNING id + execute_signal call) + run_ingestion.py reqPnL subscription
+- [x] 04-05-PLAN.md — Wave 3: Scraper integration (RETURNING id + execute_signal call) + run_ingestion.py reqPnL subscription
 
 ### Phase 5: Fill Capture and Position Reconciliation
 **Goal**: The system correctly captures every fill (including partial fills), maintains accurate per-lot position state with FIFO assignment, and periodically reconciles internal state against IBKR's authoritative position data
