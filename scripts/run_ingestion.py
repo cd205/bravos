@@ -41,6 +41,7 @@ from bravos.broker.connection import IBApp
 from bravos.config import settings
 from bravos.config.settings import SCRAPE_INTERVAL_SECONDS
 from bravos.ingestion.scraper import BravosScraper
+from bravos.risk.gate import RiskGate
 
 # Configure logging (stdlib per research — not structlog)
 logging.basicConfig(
@@ -49,6 +50,10 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
 logger = logging.getLogger("bravos.ingestion.daemon")
+
+# Phase 4: req_id allocated for reqPnL subscription.
+# Must not collide with REQ_ID_ACCOUNT_SUMMARY=9001 in broker/connection.py.
+REQ_ID_PNL = 9002
 
 _shutdown = False
 _scraper: BravosScraper | None = None
@@ -128,6 +133,28 @@ def main():
             _db_conn.close()
         except Exception:
             logger.exception("Startup reconciliation failed — continuing without reconciliation")
+
+        # Phase 4: subscribe to reqPnL so the risk gate's circuit breaker
+        # has live data. managedAccounts callback (added in Plan 04-02) fires
+        # during the connect handshake, so _account_name is populated by the
+        # time run_startup_reconciliation returns (RESEARCH Pitfall 3).
+        if _ibapp._account_name:
+            try:
+                _ibapp.reqPnL(REQ_ID_PNL, _ibapp._account_name, "")
+                logger.info(
+                    "reqPnL subscription started — req_id=%s account=%s (RISK-03 circuit breaker active)",
+                    REQ_ID_PNL, _ibapp._account_name,
+                )
+            except Exception:
+                logger.exception(
+                    "reqPnL subscription failed for account=%s — circuit breaker will fail-open",
+                    _ibapp._account_name,
+                )
+        else:
+            logger.warning(
+                "_account_name is empty after handshake — skipping reqPnL subscription. "
+                "Circuit breaker will fail-open (ibapp._daily_pnl will stay None)."
+            )
         _ibapp.start_heartbeat_monitor()
         logger.info("IBKR ready — heartbeat monitor started")
     else:
@@ -147,6 +174,15 @@ def main():
 
     # Schedule the scrape cycle (session health check at same interval as alert polling)
     schedule.every(SCRAPE_INTERVAL_SECONDS).seconds.do(run_cycle)
+
+    # Phase 4: daily circuit breaker reset at market open.
+    # 14:30 UTC = 09:30 ET (EST, UTC-5). During EDT (summer, UTC-4) this fires at
+    # 10:30 ET — 1 hour late. Known DST limitation; acceptable for v1.
+    # gate.reset() clears the daily loss accumulator so a new trading day is not
+    # blocked by the previous day's drawdown.
+    gate = RiskGate()
+    schedule.every().day.at("14:30").do(gate.reset)
+    logger.info("Scheduled daily RiskGate reset at 14:30 UTC (09:30 ET winter)")
 
     # Run first cycle immediately to confirm session is healthy after startup
     logger.info("Running initial scrape cycle...")
