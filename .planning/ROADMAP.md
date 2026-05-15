@@ -96,7 +96,11 @@ Plans:
   2. Partial fills accumulate correctly — position state updates incrementally and reflects actual filled quantity at all times
   3. When a position with multiple open lots (from scale-ins) is partially or fully closed, FIFO lot assignment is applied and the remaining open quantity is preserved correctly
   4. The system runs reqPositions() on a periodic schedule; any discrepancy between internal position state and IBKR's authoritative data is logged and flagged for review
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 05-01-PLAN.md — Wave 1: infra/migrate_phase5.sql + tests/test_positions.py Wave 0 stubs (10 tests, all @pytest.mark.skip)
+- [ ] 05-02-PLAN.md — Wave 2: bravos/execution/positions.py (open_lot + FIFO partial_close_lot) + un-skip 5 Plan 05-02 tests
+- [ ] 05-03-PLAN.md — Wave 3: connection.py execDetails/execDetailsEnd/orderStatus fill branches + run_periodic_reconciliation + run_ingestion.py wiring + un-skip 5 Plan 05-03 tests
 
 ### Phase 6: Paper Trading Validation
 **Goal**: The full pipeline (scrape → parse → risk → order → fill → reconcile) has been exercised end-to-end on the paper account with real Bravos signals, and no critical failures remain unresolved
@@ -143,7 +147,7 @@ Note: Phase 3 depends on Phase 1 only (not Phase 2), and can be developed in par
 | 2. Signal Ingestion | 5/5 | Complete   | 2026-05-09 |
 | 3. IBKR Connection | 3/4 | In Progress|  |
 | 4. Risk Controls and Order Execution | 0/TBD | Not started | - |
-| 5. Fill Capture and Position Reconciliation | 0/TBD | Not started | - |
+| 5. Fill Capture and Position Reconciliation | 0/3 | Planned     | - |
 | 6. Paper Trading Validation | 0/TBD | Not started | - |
 | 7. Dashboard and Notifications | 0/TBD | Not started | - |
 | 8. Live Deployment | 0/TBD | Not started | - |
