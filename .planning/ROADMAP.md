@@ -98,9 +98,9 @@ Plans:
   4. The system runs reqPositions() on a periodic schedule; any discrepancy between internal position state and IBKR's authoritative data is logged and flagged for review
 **Plans**: 3 plans
 Plans:
-- [ ] 05-01-PLAN.md — Wave 1: infra/migrate_phase5.sql + tests/test_positions.py Wave 0 stubs (10 tests, all @pytest.mark.skip)
-- [ ] 05-02-PLAN.md — Wave 2: bravos/execution/positions.py (open_lot + FIFO partial_close_lot) + un-skip 5 Plan 05-02 tests
-- [ ] 05-03-PLAN.md — Wave 3: connection.py execDetails/execDetailsEnd/orderStatus fill branches + run_periodic_reconciliation + run_ingestion.py wiring + un-skip 5 Plan 05-03 tests
+- [x] 05-01-PLAN.md — Wave 1: infra/migrate_phase5.sql + tests/test_positions.py Wave 0 stubs (10 tests, all @pytest.mark.skip)
+- [x] 05-02-PLAN.md — Wave 2: bravos/execution/positions.py (open_lot + FIFO partial_close_lot) + un-skip 5 Plan 05-02 tests
+- [x] 05-03-PLAN.md — Wave 3: connection.py execDetails/execDetailsEnd/orderStatus fill branches + run_periodic_reconciliation + run_ingestion.py wiring + un-skip 5 Plan 05-03 tests
 
 ### Phase 6: Paper Trading Validation
 **Goal**: The full pipeline (scrape → parse → risk → order → fill → reconcile) has been exercised end-to-end on the paper account with real Bravos signals, and no critical failures remain unresolved
