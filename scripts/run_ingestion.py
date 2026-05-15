@@ -41,7 +41,7 @@ from bravos.broker.connection import IBApp
 from bravos.config import settings
 from bravos.config.settings import SCRAPE_INTERVAL_SECONDS
 from bravos.ingestion.scraper import BravosScraper
-from bravos.risk.gate import RiskGate
+from bravos.execution.executor import _gate
 
 # Configure logging (stdlib per research — not structlog)
 logging.basicConfig(
@@ -180,8 +180,7 @@ def main():
     # 10:30 ET — 1 hour late. Known DST limitation; acceptable for v1.
     # gate.reset() clears the daily loss accumulator so a new trading day is not
     # blocked by the previous day's drawdown.
-    gate = RiskGate()
-    schedule.every().day.at("14:30").do(gate.reset)
+    schedule.every().day.at("14:30").do(_gate.reset)
     logger.info("Scheduled daily RiskGate reset at 14:30 UTC (09:30 ET winter)")
 
     # Run first cycle immediately to confirm session is healthy after startup

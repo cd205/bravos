@@ -51,6 +51,10 @@ _STATUS_MAP = {
     "Inactive": "REJECTED",   # IBKR uses Inactive for rejected/expired
 }
 
+# Module-level singleton so _circuit_tripped latches across calls within the process.
+# run_ingestion.py schedules gate.reset() daily via this same instance (D-03/RISK-03).
+_gate = RiskGate()
+
 
 # ── Public entry point ─────────────────────────────────────────────────────
 
@@ -97,9 +101,10 @@ def execute_signal(signal_id: int, db_conn) -> None:
         )
         return
 
-    # Risk gate (D-02) — single bypass-free check
-    gate = RiskGate()
-    passed, reason = gate.check(signal_id, db_conn, ibapp)
+    # Risk gate (D-02) — single bypass-free check via module-level singleton (_gate).
+    # Singleton preserves _circuit_tripped across calls so the latch survives
+    # multiple signal events in the same process lifetime (RISK-03).
+    passed, reason = _gate.check(signal_id, db_conn, ibapp)
     if not passed:
         logger.info("signal_id=%s blocked by risk gate: %s", signal_id, reason)
         return
