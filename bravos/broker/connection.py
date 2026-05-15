@@ -102,6 +102,13 @@ class IBApp(EWrapper, EClient):
         # ── Phase 4: daily P&L for circuit breaker (populated by pnl callback) ──
         self._daily_pnl: float | None = None
 
+        # ── Phase 5: dedicated DB connection for fill callbacks (api thread) ──
+        # Set by run_ingestion.py main() after run_startup_reconciliation succeeds.
+        # Owned by the ibkr-api thread (execDetails / orderStatus / position callbacks).
+        # NEVER shared with the main thread or executor (psycopg2 connections are not
+        # thread-safe; see RESEARCH Pitfall 1).
+        self._db_conn = None
+
         # Shutdown control
         self._stop_event = threading.Event()
 
@@ -510,6 +517,16 @@ class IBApp(EWrapper, EClient):
             slot["status"] = status
             slot["event"].set()
 
+        # ── Phase 5 extension: fill status → orders.status update (EXEC-06) ──
+        # Phase 4 still owns PreSubmitted/Submitted/Inactive routing via the
+        # slot above. Phase 5 only handles Filled / PartiallyFilled which
+        # write the fill price + status flip to the DB.
+        if self._db_conn is not None:
+            if status == "Filled":
+                _update_order_filled(self._db_conn, orderId, avgFillPrice)
+            elif status == "PartiallyFilled":
+                _update_order_partial(self._db_conn, orderId, avgFillPrice)
+
     def pnl(self, reqId: int, dailyPnL: float, unrealizedPnL: float, realizedPnL: float) -> None:
         """
         Called continuously by IB Gateway while reqPnL subscription is active.
@@ -518,6 +535,36 @@ class IBApp(EWrapper, EClient):
         No log per call — this fires every few seconds and would be noisy.
         """
         self._daily_pnl = dailyPnL
+
+    # ── Phase 5: execution / fill callbacks ─────────────────────────────────
+
+    def execDetails(self, reqId: int, contract, execution) -> None:
+        """
+        Canonical fill capture callback (EXEC-05, D-01, D-04).
+
+        Fires once per fill on the ibkr-api thread. Delegates immediately to
+        _handle_exec_details (module-level helper) so the logic is testable
+        without instantiating IBApp.
+        """
+        if self._db_conn is None:
+            logger.warning(
+                "execDetails: _db_conn not set — skipping fill capture exec_id=%s",
+                execution.execId,
+            )
+            return
+        _handle_exec_details(self._db_conn, execution, contract)
+
+    def execDetailsEnd(self, reqId: int) -> None:
+        """
+        Batch completion signal (D-04).
+
+        Phase 5 processes each fill individually in execDetails — execDetailsEnd
+        is informational only.
+        """
+        logger.info(
+            "execDetailsEnd received (reqId=%s) — all fills for this batch processed",
+            reqId,
+        )
 
     # ── Plan 03-3: run_startup_reconciliation ─────────────────────────────
 
@@ -562,6 +609,41 @@ class IBApp(EWrapper, EClient):
         _reconcile_against_db(db_conn, self._positions, self._open_orders)
 
         return all_done
+
+    def run_periodic_reconciliation(self, db_conn, timeout: float = 30) -> None:
+        """
+        Periodic reconciliation (IBKR-04, D-08, D-10).
+
+        Called by run_ingestion.run_cycle after each scrape-and-execute pass.
+        Reuses the Phase 3 module-level helpers (_write_position_snapshot and
+        _reconcile_against_db) — no new reconciliation logic.
+
+        Guard: skip if a prior reqPositions() is still in flight. The previous
+        run will eventually set _positions_done; we re-enter on the next cycle.
+        (RESEARCH Pitfall 3: concurrent reqPositions corrupts _positions.)
+
+        Mismatch policy (D-09): _reconcile_against_db logs WARNING for any
+        quantity difference and NEVER writes to position_lots.
+        """
+        if not self._positions_done.is_set():
+            logger.debug(
+                "Periodic reconciliation skipped — prior reqPositions still in flight"
+            )
+            return
+
+        self._positions.clear()
+        self._positions_done.clear()
+        self.reqPositions()
+        got = self._positions_done.wait(timeout)
+        if not got:
+            logger.warning(
+                "Periodic reconciliation: reqPositions timed out after %ss — "
+                "using partial data",
+                timeout,
+            )
+        _write_position_snapshot(db_conn, self._positions)
+        _reconcile_against_db(db_conn, self._positions, [])
+        logger.info("Periodic reconciliation complete")
 
 
 # ── Plan 03-3: Module-level helper functions ───────────────────────────────
@@ -624,6 +706,107 @@ def _reconcile_against_db(db_conn, ibkr_positions: list[dict], ibkr_orders: list
 
     # D-08: never write to position_lots
     logger.info("Reconciliation complete — DB not modified (D-08)")
+
+
+# ── Phase 5: Module-level fill capture + order status helpers ──────────────
+
+
+def _handle_exec_details(db_conn, execution, contract) -> None:
+    """
+    Module-level helper invoked by IBApp.execDetails (D-01 / D-04).
+
+    Sequence:
+      1. Look up orders.id + orders.action by ibkr_order_id (execution.orderId)
+      2. INSERT a row into executions (idempotent via exec_id UNIQUE)
+      3. Dispatch to positions.open_lot (BUY) or positions.partial_close_lot (SELL)
+
+    The positions module is imported inside this function (deferred import)
+    to avoid a circular dependency at module load time (mirror of
+    executor.py's deferred import of ibapp).
+    """
+    logger.info(
+        "execDetails: execId=%s orderId=%s side=%s shares=%s price=%s",
+        execution.execId, execution.orderId, execution.side,
+        execution.shares, execution.price,
+    )
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, action FROM orders WHERE ibkr_order_id = %s",
+            (execution.orderId,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        logger.error(
+            "execDetails: no order found for ibkr_order_id=%s — "
+            "cannot write execution (exec_id=%s)",
+            execution.orderId, execution.execId,
+        )
+        return
+    db_order_id, order_action = row[0], row[1]
+
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO executions (order_id, exec_id, shares, price, exec_time) "
+            "VALUES (%s, %s, %s, %s, NOW()) "
+            "ON CONFLICT (exec_id) DO NOTHING",
+            (db_order_id, execution.execId, int(execution.shares),
+             float(execution.price)),
+        )
+    db_conn.commit()
+
+    # Deferred import to avoid circular dependency
+    # (bravos.execution.positions has no IBKR dependency, so the import
+    # is safe at call time but unnecessary at module load).
+    from bravos.execution import positions
+    ticker = contract.symbol
+    if order_action == "BUY":
+        positions.open_lot(
+            ticker, int(execution.shares), float(execution.price), db_conn,
+        )
+    else:  # SELL
+        positions.partial_close_lot(
+            ticker, int(execution.shares), float(execution.price), db_conn,
+        )
+
+
+def _update_order_filled(db_conn, ibkr_order_id: int, avg_fill_price: float) -> None:
+    """
+    Set orders.status='FILLED' + fill_price + filled_at (EXEC-06, D-02).
+
+    Called from orderStatus when status == 'Filled' (i.e. filled == totalQuantity).
+    """
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE orders SET status='FILLED', fill_price=%s, filled_at=NOW() "
+            "WHERE ibkr_order_id=%s",
+            (avg_fill_price, ibkr_order_id),
+        )
+    db_conn.commit()
+    logger.info(
+        "orders.status -> FILLED for ibkr_order_id=%s avg_fill_price=%s",
+        ibkr_order_id, avg_fill_price,
+    )
+
+
+def _update_order_partial(db_conn, ibkr_order_id: int, avg_fill_price: float) -> None:
+    """
+    Set orders.status='PARTIAL' + fill_price (EXEC-06, D-02).
+
+    Called from orderStatus when status == 'PartiallyFilled'. Does NOT set
+    filled_at — the order is not complete yet.
+    """
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE orders SET status='PARTIAL', fill_price=%s "
+            "WHERE ibkr_order_id=%s",
+            (avg_fill_price, ibkr_order_id),
+        )
+    db_conn.commit()
+    logger.info(
+        "orders.status -> PARTIAL for ibkr_order_id=%s avg_fill_price=%s",
+        ibkr_order_id, avg_fill_price,
+    )
 
 
 # ── Module-level singleton ─────────────────────────────────────────────────
