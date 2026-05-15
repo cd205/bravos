@@ -111,7 +111,11 @@ Plans:
   2. No order reaches IBKR with an incorrect ticker, wrong action type, or miscalculated share quantity
   3. All parser edge cases discovered during the validation cycle have been fixed and re-tested
   4. No critical system failure (scraper session expiry not auto-recovered, IBKR heartbeat failure not auto-recovered, risk bypass) occurs during a full trading day
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 06-01-PLAN.md — Wave 1: apply migrate_phase4.sql + fix test_order_db_write_pending + unskip 8 broker stubs (green suite)
+- [ ] 06-02-PLAN.md — Wave 2: build scripts/validate_pipeline.py harness + validation/BUG-LOG.md + VALIDATION-REPORT.md scaffolds
+- [ ] 06-03-PLAN.md — Wave 3: live paper validation run + in-place bug fixes + finalize SC-1..SC-4 + live observation (checkpoint)
 
 ### Phase 7: Dashboard and Notifications
 **Goal**: A web dashboard shows current signals, open positions, closed trade history, and system health; the system sends email alerts when the circuit breaker trips or a critical system error occurs
