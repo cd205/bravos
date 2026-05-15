@@ -500,16 +500,18 @@ Note: `schema.sql` already defines `fill_price`, `filled_at`, and `exec_id` — 
 
 **Risk mitigation for A3:** CONTEXT.md states "AUDIT-04: Partial closes and profit-booking actions record both the lot(s) reduced and the resulting remaining open quantity, preserving the full lot history" and "AUDIT-06: All audit records are immutable — system appends new state rows rather than updating/deleting history." The append-new-row approach is confirmed by these requirements.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **db_conn threading model — dedicated connection vs. shared connection**
    - What we know: Phase 4 executor opens its own connection per `execute_signal()` call; Phase 3 startup reconciliation opens a connection, uses it, closes it. There is no persistent `_db_conn` on IBApp today.
    - What's unclear: Should `execDetails` get a dedicated persistent connection stored on `ibapp._db_conn`, or should it open/close a new connection per fill event?
    - Recommendation: Store a dedicated `ibapp._db_conn` opened at startup (in `run_ingestion.py` main()). Opening a new psycopg2 connection per fill adds ~5-10ms latency and creates Cloud SQL Auth Proxy connection churn. Dedicated connection avoids this. Planner should choose one approach and document it as the Phase 5 threading pattern.
+   - RESOLVED: Dedicated `ibapp._db_conn` stored on IBApp, set at startup in `run_ingestion.py` main(). Periodic reconciliation opens a fresh per-call `_recon_db_conn` (different thread/context).
 
 2. **partial_close_lot single-function vs. two-function API**
    - What we know: CONTEXT.md marks this as Claude's Discretion. Both approaches work.
    - Recommendation: Single `partial_close_lot(ticker, shares, exit_price, db_conn)` function handles both partial and full closes (full close = call with `shares = total_open_quantity`). Avoids an extra function that `close_lot` would just delegate to anyway. Keep `open_lot` separate (different semantics entirely).
+   - RESOLVED: Single `partial_close_lot()` for internal FIFO logic. D-03's explicit `close_lot()` export is preserved as a thin public wrapper that calls `partial_close_lot()` with the full open quantity — satisfies the locked D-03 API contract without duplicating logic.
 
 ## Environment Availability
 
