@@ -23,7 +23,6 @@ import pytest
 
 # ── Plan 05-02: positions.py — open_lot, partial_close_lot (FIFO), close_lot ──
 
-@pytest.mark.skip(reason="implementing: 05-02-open-lot")
 def test_open_lot_writes_row(db_connection):
     """POS-01: open_lot() inserts a new open position_lots row with correct quantity and entry_price.
 
@@ -31,7 +30,7 @@ def test_open_lot_writes_row(db_connection):
     """
     from bravos.execution.positions import open_lot
 
-    ticker = f"AAPL_05P1_{os.urandom(4).hex()}"
+    ticker = f"OPN_{os.urandom(3).hex()}"
     try:
         open_lot(ticker, 10, 150.00, db_connection)
 
@@ -51,7 +50,6 @@ def test_open_lot_writes_row(db_connection):
         db_connection.rollback()
 
 
-@pytest.mark.skip(reason="implementing: 05-02-fifo")
 def test_fifo_closes_oldest_lot_first(db_connection):
     """POS-03: partial_close_lot() uses FIFO — oldest open lot closed before newer lots.
 
@@ -59,7 +57,7 @@ def test_fifo_closes_oldest_lot_first(db_connection):
     """
     from bravos.execution.positions import partial_close_lot
 
-    ticker = f"FIFO_T1_{os.urandom(4).hex()}"
+    ticker = f"FIF_{os.urandom(3).hex()}"
     try:
         with db_connection.cursor() as cur:
             # Insert oldest lot: 10 shares, $100 entry
@@ -103,7 +101,6 @@ def test_fifo_closes_oldest_lot_first(db_connection):
         db_connection.rollback()
 
 
-@pytest.mark.skip(reason="implementing: 05-02-fifo")
 def test_fifo_partial_close_one_lot(db_connection):
     """POS-03/AUDIT-04: partial_close_lot() splits a lot — surviving open row + new closed row (append-only).
 
@@ -111,7 +108,7 @@ def test_fifo_partial_close_one_lot(db_connection):
     """
     from bravos.execution.positions import partial_close_lot
 
-    ticker = f"PARTIAL_T1_{os.urandom(4).hex()}"
+    ticker = f"PAR_{os.urandom(3).hex()}"
     try:
         with db_connection.cursor() as cur:
             # Insert one lot: 20 shares, $50 entry
@@ -148,7 +145,6 @@ def test_fifo_partial_close_one_lot(db_connection):
         db_connection.rollback()
 
 
-@pytest.mark.skip(reason="implementing: 05-02-fifo")
 def test_fifo_close_spanning_multiple_lots(db_connection):
     """POS-03: partial_close_lot() spanning multiple lots closes oldest-first across lot boundaries.
 
@@ -156,7 +152,7 @@ def test_fifo_close_spanning_multiple_lots(db_connection):
     """
     from bravos.execution.positions import partial_close_lot
 
-    ticker = f"SPAN_T1_{os.urandom(4).hex()}"
+    ticker = f"SPN_{os.urandom(3).hex()}"
     try:
         with db_connection.cursor() as cur:
             # lot_a: 10 shares, $90 entry, oldest
@@ -229,7 +225,6 @@ def test_fifo_close_spanning_multiple_lots(db_connection):
         db_connection.rollback()
 
 
-@pytest.mark.skip(reason="implementing: 05-02-close")
 def test_close_lot_sets_fields(db_connection):
     """POS-02: A full close via partial_close_lot() sets lot_closed_at, exit_price, and pnl correctly.
 
@@ -238,7 +233,7 @@ def test_close_lot_sets_fields(db_connection):
     """
     from bravos.execution.positions import partial_close_lot
 
-    ticker = f"CLOSE_T1_{os.urandom(4).hex()}"
+    ticker = f"CLO_{os.urandom(3).hex()}"
     try:
         with db_connection.cursor() as cur:
             # Insert one lot: 5 shares, $200 entry
@@ -441,7 +436,7 @@ def test_periodic_reconciliation_mismatch(db_connection):
     """
     from bravos.broker.connection import _reconcile_against_db
 
-    ticker = f"RECON_T1_{os.urandom(4).hex()}"
+    ticker = f"REC_{os.urandom(3).hex()}"
     try:
         # Insert one open lot: 100 shares at $50
         with db_connection.cursor() as cur:
