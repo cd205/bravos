@@ -242,14 +242,15 @@ def test_order_db_write_pending(db_connection):
 
     # Mock ibapp: capture placeOrder call but do NOT fire orderStatus (we want to assert pre-call DB state)
     mock_ibapp = MagicMock()
-    mock_ibapp.next_order_id = 1000
+    order_id = int.from_bytes(os.urandom(3), "big") + 10000  # unique per run — avoids stale-row contamination (RESEARCH Bug 2)
+    mock_ibapp.next_order_id = order_id
     mock_ibapp._order_status_events = {}
 
     # Use a side-effect on placeOrder that snapshots DB state at call time
     captured_status = {}
     def capture_db_state(*args, **kwargs):
         with db_connection.cursor() as cur:
-            cur.execute("SELECT status FROM orders WHERE ibkr_order_id=%s", (1000,))
+            cur.execute("SELECT status FROM orders WHERE ibkr_order_id=%s", (order_id,))
             row = cur.fetchone()
             captured_status["status"] = row[0] if row else None
     mock_ibapp.placeOrder = MagicMock(side_effect=capture_db_state)
