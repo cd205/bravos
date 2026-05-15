@@ -135,7 +135,10 @@ def test_gate_log_pass(db_connection):
     gate = RiskGate()
     mock_ibapp = MagicMock()
     mock_ibapp._daily_pnl = 0.0
-    with patch("bravos.risk.gate._is_market_hours", return_value=True):
+    # Patch market hours AND open positions count — live DB may have accumulated positions
+    # from prior test runs that would trigger Gate 2 (max_positions) and prevent a pass.
+    with patch("bravos.risk.gate._is_market_hours", return_value=True), \
+         patch.object(RiskGate, "_count_open_positions", return_value=0):
         passed, reason = gate.check(signal_id=signal_id, db_conn=db_connection, ibapp=mock_ibapp)
     assert passed is True
 
