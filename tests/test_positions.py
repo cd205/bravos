@@ -268,7 +268,6 @@ def test_close_lot_sets_fields(db_connection):
 
 # ── Plan 05-03: connection.py callbacks — execDetails, orderStatus, periodic reconciliation ──
 
-@pytest.mark.skip(reason="implementing: 05-03-exec-details")
 def test_exec_details_writes_execution_row():
     """EXEC-05: _handle_exec_details() writes one executions row and calls open_lot() for BUY fills.
 
@@ -316,7 +315,6 @@ def test_exec_details_writes_execution_row():
     mock_open_lot.assert_called_once_with("AAPL", 5, 150.00, mock_conn)
 
 
-@pytest.mark.skip(reason="implementing: 05-03-exec-details")
 def test_exec_details_idempotent():
     """EXEC-05: _handle_exec_details() INSERT INTO executions uses ON CONFLICT (exec_id) DO NOTHING.
 
@@ -353,7 +351,6 @@ def test_exec_details_idempotent():
     ), "INSERT INTO executions must contain ON CONFLICT (exec_id) DO NOTHING (case-insensitive)"
 
 
-@pytest.mark.skip(reason="implementing: 05-03-order-status")
 def test_order_status_filled():
     """EXEC-06: _update_order_filled() sets status='FILLED', fill_price, filled_at=NOW() on orders row.
 
@@ -391,7 +388,6 @@ def test_order_status_filled():
     assert params == (150.25, 1000), f"Expected params (150.25, 1000), got {params}"
 
 
-@pytest.mark.skip(reason="implementing: 05-03-order-status")
 def test_order_status_partial():
     """EXEC-06: _update_order_partial() sets status='PARTIAL' and fill_price for partial fills.
 
@@ -426,7 +422,6 @@ def test_order_status_partial():
     assert params == (149.75, 1001), f"Expected params (149.75, 1001), got {params}"
 
 
-@pytest.mark.skip(reason="implementing: 05-03-periodic-reconciliation")
 def test_periodic_reconciliation_mismatch(db_connection):
     """IBKR-04: _reconcile_against_db() logs WARNING on position mismatch and never auto-corrects.
 
