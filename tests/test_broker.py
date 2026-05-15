@@ -16,7 +16,6 @@ import pytest
 
 # ── Plan 03-1: IBApp class skeleton + settings integration ─────────────────
 
-@pytest.mark.skip(reason="plan: 03-1")
 def test_ibapp_init_sets_host_port_client_id():
     """IBApp stores connection params from constructor — does not connect."""
     from bravos.broker.connection import IBApp
@@ -26,7 +25,6 @@ def test_ibapp_init_sets_host_port_client_id():
     assert app._client_id == 1
 
 
-@pytest.mark.skip(reason="plan: 03-1")
 def test_ibapp_init_connected_event_is_clear():
     """_connected Event must be clear on init — not yet connected."""
     from bravos.broker.connection import IBApp
@@ -34,7 +32,6 @@ def test_ibapp_init_connected_event_is_clear():
     assert not app._connected.is_set()
 
 
-@pytest.mark.skip(reason="plan: 03-1")
 def test_ibapp_is_connected_returns_false_before_connect():
     """is_connected() reflects _connected Event state — False at init."""
     from bravos.broker.connection import IBApp
@@ -42,7 +39,6 @@ def test_ibapp_is_connected_returns_false_before_connect():
     assert app.is_connected() is False
 
 
-@pytest.mark.skip(reason="plan: 03-1")
 def test_next_valid_id_sets_connected_and_stores_order_id():
     """nextValidId() callback: sets _connected, stores next_order_id, updates heartbeat ts."""
     from bravos.broker.connection import IBApp
@@ -54,7 +50,6 @@ def test_next_valid_id_sets_connected_and_stores_order_id():
     assert app._last_heartbeat_at > 0
 
 
-@pytest.mark.skip(reason="plan: 03-1")
 def test_paper_port_config():
     """get_ibkr_port() returns 4002 when TRADING_MODE=paper."""
     os.environ["TRADING_MODE"] = "paper"
@@ -64,7 +59,6 @@ def test_paper_port_config():
     assert port == 4002
 
 
-@pytest.mark.skip(reason="plan: 03-1")
 def test_live_port_config():
     """get_ibkr_port() returns 4001 when TRADING_MODE=live."""
     os.environ["TRADING_MODE"] = "live"
@@ -75,7 +69,6 @@ def test_live_port_config():
     os.environ["TRADING_MODE"] = "paper"
 
 
-@pytest.mark.skip(reason="plan: 03-1")
 def test_module_level_ibapp_singleton_is_none_at_import():
     """bravos.broker.connection.ibapp is None at import — initialized by run_ingestion.py."""
     import bravos.broker.connection as broker_module
@@ -84,7 +77,6 @@ def test_module_level_ibapp_singleton_is_none_at_import():
     assert broker_module.ibapp is None
 
 
-@pytest.mark.skip(reason="plan: 03-1")
 def test_stop_sets_stop_event_and_clears_connected():
     """stop() sets _stop_event and clears _connected — safe to call without connecting."""
     from bravos.broker.connection import IBApp
