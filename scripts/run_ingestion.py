@@ -102,6 +102,24 @@ def run_cycle():
         else:
             logger.info("Re-authentication succeeded")
 
+    # ── Phase 5: periodic reconciliation (IBKR-04, D-08) ─────────────────
+    # Piggybacks on the scrape cycle: every SCRAPE_INTERVAL_SECONDS, fetch
+    # current IBKR positions, snapshot them, and log WARNING on any mismatch
+    # against open lots in position_lots. Never auto-corrects (D-09).
+    if broker_module.ibapp is not None and broker_module.ibapp.is_connected():
+        try:
+            _recon_db_conn = _get_db_connection()
+            try:
+                broker_module.ibapp.run_periodic_reconciliation(_recon_db_conn)
+            finally:
+                _recon_db_conn.close()
+        except Exception:
+            logger.exception("Periodic reconciliation failed — continuing")
+    else:
+        logger.debug(
+            "Periodic reconciliation skipped — ibapp not connected"
+        )
+
 
 def main():
     global _scraper
@@ -133,6 +151,24 @@ def main():
             _db_conn.close()
         except Exception:
             logger.exception("Startup reconciliation failed — continuing without reconciliation")
+
+        # ── Phase 5: install dedicated DB connection for fill callbacks ──
+        # execDetails and orderStatus fire on the ibkr-api thread. This
+        # connection is owned by that thread and is NEVER shared with the
+        # main thread or the executor (psycopg2 connections are not thread-safe;
+        # see RESEARCH Pitfall 1). The connection is intentionally not
+        # closed at this scope — it lives for the daemon process lifetime and
+        # is implicitly cleaned up by ibapp.stop() at shutdown.
+        try:
+            _ibapp._db_conn = _get_db_connection()
+            logger.info(
+                "IBApp._db_conn installed for fill callbacks (Phase 5 — EXEC-05/EXEC-06)"
+            )
+        except Exception:
+            logger.exception(
+                "Failed to open DB connection for ibapp._db_conn — fill captures will be skipped"
+            )
+            _ibapp._db_conn = None
 
         # Phase 4: subscribe to reqPnL so the risk gate's circuit breaker
         # has live data. managedAccounts callback (added in Plan 04-02) fires
