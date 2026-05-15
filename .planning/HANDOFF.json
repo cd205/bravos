@@ -1,14 +1,14 @@
 {
   "version": "1.0",
-  "timestamp": "2026-05-14T09:46:49.480Z",
+  "timestamp": "2026-05-15T05:37:51.048Z",
   "source": "auto-postool",
   "partial": false,
-  "phase": null,
-  "phase_name": "03 (ibkr-connection) — EXECUTING",
-  "phase_dir": null,
-  "plan": "1",
+  "phase": "5",
+  "phase_name": "fill-capture-and-position-reconciliation",
+  "phase_dir": ".planning/phases/05-fill-capture-and-position-reconciliation",
+  "plan": null,
   "task": null,
-  "total_tasks": null,
+  "total_tasks": 0,
   "status": "auto-checkpoint",
   "completed_tasks": [],
   "remaining_tasks": [],
@@ -34,138 +34,138 @@
     {
       "decision": "No decisions logged yet. See PROJECT.md Key Decisions.",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 01]: Wave 0 test stubs written with full bodies inside @pytest.mark.skip — future plans remove decorator, not rewrite test",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 01]: DEV-01: Python 3.13.5 + miniconda3 (not 3.11+venv) — mirrors opt-trade-vm4 exactly",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 01]: DEV-02: pip install ibapi==9.81.1.post1 (not official zip) — mirrors opt-trade-vm4",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 01]: DEV-03: Ubuntu 24.04 LTS Noble — use ubuntu-2404-lts-amd64 image for bravos_vm1",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 01]: DEV-04: ibgateway.service Restart=always,RestartSec=15 — mirrors opt-trade-vm4",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 02]: Phase 2 Wave 0 follows Phase 1 skip-stub pattern: full test bodies inside @pytest.mark.skip, skip reason names implementing plan",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 02]: DB migration SQL written and ready; not applied live because Cloud SQL Auth Proxy binary unavailable on this VM state",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 02]: Confidence threshold: 4=high, >=2=medium, <2=low (test behavior overrides D-10 prose)",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 02]: parse_method='spacy' when ticker is None — marks NLP path was entered, even if spaCy unavailable",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 02]: WEIGHT_RE matches 'weight from X to Y' in addition to 'weight of X to Y'",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 02]: WordPress login fields: name='log' (username) and name='pwd' (password) — standard WP /my-account/ form",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 02]: Selector defaults are WordPress standard (article, h2 a, .entry-content) — must be confirmed against live Bravos site",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 02]: Un-skipping tests is the canonical way to activate Wave 0 stubs — no rewrite needed, the test body was complete",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 02]: v2 migration (infra/migrate_signals_v2.sql) adds parse_method + scraped_at; applied to live Cloud SQL before running tests",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 02]: Daemon schedule loop runs session health check (not category polling) — Gmail-triggered arch; alerts arrive via email, loop keeps Chrome driver warm",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 02]: Integration tests accept TEST_ALERT_URL env var to specify a real post URL on VM without hardcoding",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 03]: IBApp uses combined EWrapper+EClient Pattern B — fewer files, clean MRO since EWrapper has no __init__",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 03]: error() routing via module-level code sets (_IGNORE_CODES, _IMMEDIATE_RECONNECT_CODES, etc.) — O(1) lookup, easily extended",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 03]: Plan 03-2/03-3 stubs raise NotImplementedError — explicit contract, not silent no-op",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 03]: Run broker tests with miniconda3 python (/home/chris_s_dodd/miniconda3/bin/python) — system python3 lacks ibapi",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 03]: _trigger_reconnect uses lock-guarded _reconnecting flag to prevent duplicate reconnect thread spawns",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 03]: 03-2 tests permanently unskipped (not re-skipped) — 7 tests now pass with miniconda3 python",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 03]: reqAllOpenOrders() used in run_startup_reconciliation (not reqOpenOrders()) — captures manually-placed TWS orders for full reconciliation; Phase 4 order tracking uses scoped reqOpenOrders()",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 03]: DB integration tests deferred to bravos-vm1 — Cloud SQL Auth Proxy not running on dev VM; 2 tests unskipped and will run on VM",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     },
     {
       "decision": "[Phase 03]: Helper functions _write_position_snapshot and _reconcile_against_db are module-level not IBApp methods — DB operations logically separate from IBKR connection class",
       "rationale": "",
-      "phase": null
+      "phase": "5"
     }
   ],
   "uncommitted_files": [
     {
       "status": "M",
-      "path": ".planning/config.json"
+      "path": ".planning/HANDOFF.json"
     },
     {
       "status": "??",
@@ -173,15 +173,7 @@
     },
     {
       "status": "??",
-      "path": ".planning/HANDOFF.json"
-    },
-    {
-      "status": "??",
-      "path": ".planning/phases/03-ibkr-connection/03-VERIFICATION.md"
-    },
-    {
-      "status": "??",
-      "path": ".planning/phases/04-risk-controls-and-order-execution/04-RESEARCH.md"
+      "path": ".planning/phases/05-fill-capture-and-position-reconciliation/05-RESEARCH.md"
     },
     {
       "status": "??",
@@ -197,7 +189,15 @@
     },
     {
       "status": "??",
+      "path": "bravos/execution/__pycache__/"
+    },
+    {
+      "status": "??",
       "path": "bravos/ingestion/__pycache__/"
+    },
+    {
+      "status": "??",
+      "path": "bravos/risk/__pycache__/"
     },
     {
       "status": "??",
@@ -209,5 +209,5 @@
     }
   ],
   "next_action": null,
-  "context_notes": "Stopped at: Phase 4 context gathered\n\nRecent commits:\neea9159 docs(state): record phase 4 context session\n88509bc docs(04): capture phase context\n05ad09f test(03): persist human verification items as UAT\n9e1adcf docs(phase-03): update tracking after wave 1 complete\n80a02b8 docs(03-04): add SUMMARY.md for daemon integration plan"
+  "context_notes": "Stopped at: Phase 5 context gathered\n\nRecent commits:\n64505f8 docs(state): record phase 5 context session\nf6111b6 docs(05): capture phase context\ne9d8307 docs(phase-04): complete phase execution\nc6a5198 docs(phase-04): complete phase execution\n76291b7 fix(04-05): make RiskGate a module-level singleton so circuit breaker latches persist"
 }
