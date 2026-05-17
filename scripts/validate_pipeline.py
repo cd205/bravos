@@ -64,9 +64,17 @@ REQ_ID_PNL = 9002
 #   ("https://bravosresearch.com/?p=XXXX", "AAPL", "open"),
 # ---------------------------------------------------------------------------
 URL_LIST: list[tuple[str, str, str]] = [
-    # (url, expected_ticker, expected_action) — REPLACE with operator-provided list (D-01).
-    # MUST cover all 4 action types per D-02: open, add, partial_close, close.
-    # ("https://bravosresearch.com/?p=XXXX", "TICKER", "open"),
+    # Operator-provided list — 10 URLs covering all 4 action types (D-01/D-02).
+    ("https://bravosresearch.com/news-feed/closing-ishares-msci-brazil-etf-ewz-breakdown/", "EWZ", "close"),
+    ("https://bravosresearch.com/news-feed/booking-partial-profits-on-united-states-copper-index-fund-cper-profit-booking/", "CPER", "partial_close"),
+    ("https://bravosresearch.com/news-feed/closing-energy-fuels-inc-uuuu-breakdown/", "UUUU", "close"),
+    ("https://bravosresearch.com/news-feed/booking-partial-profits-on-cvs-health-corporation-cvs-profit-booking/", "CVS", "partial_close"),
+    ("https://bravosresearch.com/news-feed/initiating-long-on-spdr-sp-metals-and-mining-etf-xme-breakout/", "XME", "open"),
+    ("https://bravosresearch.com/news-feed/initiating-long-on-ishares-msci-japan-etf-ewj-breakout/", "EWJ", "open"),
+    ("https://bravosresearch.com/news-feed/increasing-exposure-to-exelixis-inc-exel-breakout/", "EXEL", "add"),
+    ("https://bravosresearch.com/news-feed/increasing-exposure-to-united-states-copper-index-fund-cper-technical-strength-2/", "CPER", "add"),
+    ("https://bravosresearch.com/news-feed/initiating-long-on-proshares-ultrashort-20-year-treasury-tbt-hedge/", "TBT", "open"),
+    ("https://bravosresearch.com/news-feed/booking-partial-profits-on-vaneck-semiconductor-etf-smh-profit-booking-3/", "SMH", "partial_close"),
 ]
 
 
