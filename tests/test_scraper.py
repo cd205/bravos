@@ -70,7 +70,9 @@ def test_fetch_post_returns_title_and_body():
     mock_body.get_attribute.return_value = "<p>Body</p>"
     mock_body.text = "Body text here"
     with patch("bravos.ingestion.scraper.WebDriverWait"):
-        s.driver.find_elements.return_value = [mock_article]
+        # First find_elements call is for og:title meta — return empty so article fallback runs.
+        # Second call is for the article element.
+        s.driver.find_elements.side_effect = [[], [mock_article]]
         s.driver.find_element.return_value = mock_body
         result = s.fetch_post("https://bravosresearch.com/news-feed/eme-post/")
     assert result["url"] == "https://bravosresearch.com/news-feed/eme-post/"

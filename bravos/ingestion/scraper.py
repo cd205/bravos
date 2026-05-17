@@ -187,12 +187,17 @@ class BravosScraper:
             logger.warning("Timeout waiting for post body at %s", url)
             return {"title": "", "url": url, "raw_html": "", "text": ""}
 
-        # Title from article tag (includes post title before the body content)
+        # Title: prefer og:title meta (full untruncated string) over article text
+        # (article .text.split("\n")[0] truncates when the title wraps in the viewport,
+        # causing the ticker symbol to land on line 2 and be silently dropped).
         title = ""
-        article_els = self.driver.find_elements(By.CSS_SELECTOR, "article")
-        if article_els:
-            # First line of article text is the post title
-            title = article_els[0].text.split("\n")[0].strip()
+        og_els = self.driver.find_elements(By.CSS_SELECTOR, 'meta[property="og:title"]')
+        if og_els:
+            title = og_els[0].get_attribute("content") or ""
+        if not title:
+            article_els = self.driver.find_elements(By.CSS_SELECTOR, "article")
+            if article_els:
+                title = article_els[0].text.split("\n")[0].strip()
 
         body_el = self.driver.find_element(By.CSS_SELECTOR, settings.POST_BODY_SELECTOR)
         return {
