@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-05-17T07:42:59.873Z",
+  "timestamp": "2026-05-18T08:15:04.587Z",
   "source": "auto-postool",
   "partial": false,
   "phase": null,
@@ -9,9 +9,15 @@
   "plan": "1",
   "task": null,
   "total_tasks": null,
-  "status": "auto-checkpoint",
-  "completed_tasks": [],
-  "remaining_tasks": [],
+  "status": "SC-1/SC-2/SC-3 PASS — SC-4 pending live observation",
+  "completed_tasks": [
+    "Wave 1: harness + DB chain verification",
+    "Wave 2: IBKR connection + dry-run flows",
+    "Wave 3: 10/10 PASS — BUG-01 fixed, VALIDATION-REPORT.md written"
+  ],
+  "remaining_tasks": [
+    "SC-4: run daemon through one full NYSE trading day; verify INGST-07/IBKR-02/IBKR-04 in logs"
+  ],
   "blockers": [
     {
       "description": "[Phase 1]: Parser regex patterns must be validated against 20+ real Bravos alert samples before connecting to execution path. Real post format variation is unconfirmed.",
@@ -168,70 +174,10 @@
       "path": ".planning/HANDOFF.json"
     },
     {
-      "status": "M",
-      "path": ".planning/STATE.md"
-    },
-    {
       "status": "??",
       "path": ".planning/phases/06-paper-trading-validation/06-PATTERNS.md"
-    },
-    {
-      "status": "??",
-      "path": "bravos/__pycache__/"
-    },
-    {
-      "status": "??",
-      "path": "bravos/broker/__pycache__/"
-    },
-    {
-      "status": "??",
-      "path": "bravos/config/__pycache__/"
-    },
-    {
-      "status": "??",
-      "path": "bravos/execution/__pycache__/"
-    },
-    {
-      "status": "??",
-      "path": "bravos/ingestion/__pycache__/"
-    },
-    {
-      "status": "??",
-      "path": "bravos/risk/__pycache__/"
-    },
-    {
-      "status": "??",
-      "path": "scripts/__pycache__/"
-    },
-    {
-      "status": "??",
-      "path": "tests/__pycache__/"
-    },
-    {
-      "status": "??",
-      "path": "validation/run-20260517-053612.log"
-    },
-    {
-      "status": "??",
-      "path": "validation/run-20260517-065520.log"
-    },
-    {
-      "status": "??",
-      "path": "validation/run-20260517-070224.log"
-    },
-    {
-      "status": "??",
-      "path": "validation/run-20260517-071836.log"
-    },
-    {
-      "status": "??",
-      "path": "validation/run-20260517-072137.log"
-    },
-    {
-      "status": "??",
-      "path": "validation/run-20260517-072331.log"
     }
   ],
-  "next_action": null,
-  "context_notes": "Stopped at: Phase 6 context gathered\n\nRecent commits:\n5dbd98f fix(06-03): use og:title meta to prevent ticker truncation in long post titles\nc29ce1e feat(06-03): populate URL_LIST with 10 operator-provided Bravos post URLs\n45cf69c docs(phase-06): update tracking after waves 1 and 2\n35ddc2f chore: merge executor worktree (worktree-agent-a784fa51ab3313c9f)\n177bb55 docs(06-02): complete pipeline validation harness plan — validate_pipeline.py + D-06 scaffolds"
+  "next_action": "SC-4 live observation: run bravos daemon through one full NYSE trading day and check logs for INGST-07/IBKR-02/IBKR-04 events. Then close Phase 6.",
+  "context_notes": "Wave 3 complete: 10/10 PASS on 2026-05-18. SC-1 (10 posts), SC-2 (correct ticker+action, all 4 types), SC-3 (BUG-01 fixed) all PASS. SC-4 requires live observation. VALIDATION-REPORT.md written. 9/10 posts confidence=medium (no weight data in post body) — harness treats these as signal-only, consistent with risk gate design. Order→fill path exercised only for high-confidence signals during market hours."
 }
