@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 # Regex patterns (validated against real post titles and bodies)
 TICKER_RE = re.compile(r'\$([A-Z]{1,5})\b')
+# Fallback: matches bare ticker in parentheses, e.g. "(CPER)" in og:title where $ is absent.
+TICKER_PAREN_RE = re.compile(r'\(([A-Z]{1,5})\)')
 PRICE_RE = re.compile(r'at \$(\d+(?:\.\d{1,2})?)')
 # Matches "weight from X to Y", "weight of X to Y", "weight X to Y"
 WEIGHT_RE = re.compile(
@@ -199,6 +201,13 @@ def parse_signal(title: str, body: str) -> dict:
         }
 
     ticker = all_tickers[0] if all_tickers else None
+
+    # Parenthetical fallback: og:title omits the $ prefix (e.g. "(CPER)" not "($CPER)").
+    # Only applied when $TICKER regex found nothing in both title and body.
+    if ticker is None:
+        paren_in_title = TICKER_PAREN_RE.findall(title)
+        if len(set(paren_in_title)) == 1:
+            ticker = paren_in_title[0]
 
     # --- Reference price (body only, first match) ---
     price_match = PRICE_RE.search(body)
