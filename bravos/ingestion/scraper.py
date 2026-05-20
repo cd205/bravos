@@ -276,6 +276,15 @@ class BravosScraper:
                      content["title"][:60], parsed.get("ticker"),
                      parsed.get("action_type"), parsed.get("confidence"), signal_id)
 
+        # Phase 7: parse failure spike tracking (D-03, NOTF-02). Duplicates
+        # (signal_id is None) are not counted — only genuinely parsed signals.
+        if signal_id is not None:
+            try:
+                from bravos.notifications.notifier import record_parse_outcome
+                record_parse_outcome(parsed)
+            except Exception:
+                logger.warning("record_parse_outcome failed — continuing", exc_info=True)
+
         # Phase 4 D-12: route stored signal to the order path.
         # Confidence pre-check here is defensive redundancy — execute_signal applies
         # its own guards internally (confidence='high', valid action_type, ibapp

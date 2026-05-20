@@ -42,6 +42,7 @@ from bravos.config import settings
 from bravos.config.settings import SCRAPE_INTERVAL_SECONDS
 from bravos.ingestion.scraper import BravosScraper
 from bravos.execution.executor import _gate
+from bravos.notifications.notifier import send_alert, record_parse_outcome
 
 # Configure logging (stdlib per research — not structlog)
 logging.basicConfig(
@@ -99,6 +100,15 @@ def run_cycle():
         logger.warning("Session health check: FAILED — re-authenticating")
         if not _scraper._login():
             logger.error("Re-authentication failed in health check cycle")
+            # Phase 7: email alert (D-02b, NOTF-02)
+            import datetime
+            send_alert(
+                "Scraper Re-Authentication Failed",
+                f"Bravos Research session re-authentication failed at "
+                f"{datetime.datetime.now().isoformat()}\n"
+                f"The Chrome driver session may be broken. Daemon will retry next cycle.\n"
+                f"Manual inspection of the Chrome session may be required.",
+            )
         else:
             logger.info("Re-authentication succeeded")
 
