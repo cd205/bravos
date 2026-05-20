@@ -675,19 +675,17 @@ Note: `validate_secrets()` runs at daemon startup. If these secrets do not exist
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Where does parse spike tracking live?**
+1. **Where does parse spike tracking live?** RESOLVED: Option C — state (`_parse_outcomes`, `_spike_alerted`) lives in `bravos/notifications/notifier.py` as module-level variables alongside `record_parse_outcome()`. Called from `scripts/run_ingestion.py` after `scraper.process_alert()` returns, using a deferred import of `record_parse_outcome`. No modification to `scraper.py` return type needed.
    - What we know: D-03 says the counter is "maintained in `run_cycle()`," but `run_cycle()` does not currently call `process_alert()` — the Gmail poller does.
-   - What's unclear: Whether D-03 means the counter lives in the `run_cycle()` file scope (`run_ingestion.py`) and the call is wired through the Gmail poller path, or whether the tracking should move to the notifier module.
    - Recommendation: Move state to `bravos/notifications/notifier.py` as `record_parse_outcome()` (Option C above). Wire the call from `scraper.process_alert()` with a deferred import. This is consistent with D-09 and cleanest from a module responsibility standpoint.
 
-2. **Should `validate_secrets()` include the new SMTP secrets?**
+2. **Should `validate_secrets()` include the new SMTP secrets?** RESOLVED: Yes — add `bravos-alert-smtp-password` and `bravos-alert-smtp-from` to `REQUIRED_SECRETS` in `secrets_config.py`. Document as a deploy prerequisite in the `secrets_config.py` comment.
    - What we know: `validate_secrets()` blocks daemon startup if any REQUIRED_SECRET is unreadable. If SMTP secrets are not yet in GCP Secret Manager, the daemon cannot start.
-   - What's unclear: Whether the operator will create the SMTP secrets before Phase 7 deploys, or if they should be excluded from `validate_secrets()` and only checked lazily inside `send_alert()`.
    - Recommendation: Add to REQUIRED_SECRETS so alerts are guaranteed to work when needed. Document as a deploy prerequisite. (A broken alerting system is silently broken, which is worse than a startup failure.)
 
-3. **`queries/` directory — does it need a README?**
+3. **`queries/` directory — does it need a README?** RESOLVED: No — include a comment block at the top of `monitor.sql` with the psql run command. The file is self-documenting.
    - What we know: D-12 says "file location: `queries/monitor.sql`." CONTEXT.md leaves README as Claude's discretion.
    - Recommendation: Include a one-line comment block at the top of `monitor.sql` itself explaining how to run it. No separate README needed — the file is self-documenting via the psql command in D-12.
 
