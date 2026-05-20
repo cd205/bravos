@@ -109,6 +109,18 @@ class RiskGate:
                 "Circuit breaker TRIPPED: daily_pnl=%.2f < threshold=%.2f",
                 daily_pnl, DAILY_LOSS_THRESHOLD,
             )
+            # Phase 7: email alert (D-01, NOTF-01) — deferred import avoids circular dep
+            try:
+                from bravos.notifications.notifier import send_alert
+                import datetime
+                send_alert(
+                    "Circuit Breaker Triggered",
+                    f"Daily P&L circuit breaker triggered at {datetime.datetime.now().isoformat()}\n"
+                    f"daily_pnl={daily_pnl:.2f}  threshold={DAILY_LOSS_THRESHOLD:.2f}\n"
+                    f"No new orders will be placed for the remainder of the trading day.",
+                )
+            except Exception:
+                logger.warning("Failed to send circuit breaker alert", exc_info=True)
         if self._circuit_tripped:
             return self._log_and_return(
                 False,

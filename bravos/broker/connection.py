@@ -363,6 +363,20 @@ class IBApp(EWrapper, EClient):
                     len(_RETRY_DELAYS),
                     reason,
                 )
+                # Phase 7: email alert (D-02a, NOTF-02) — fires once when retries are exhausted
+                try:
+                    from bravos.notifications.notifier import send_alert
+                    import datetime
+                    send_alert(
+                        "IBKR Disconnect — Auto-Recovery Failed",
+                        f"IB Gateway disconnect not auto-recovered after {len(_RETRY_DELAYS)} attempts.\n"
+                        f"Reason: {reason}\n"
+                        f"Time: {datetime.datetime.now().isoformat()}\n"
+                        f"System is retrying every 60s. No orders can be placed until reconnected.\n"
+                        f"Manual intervention may be required.",
+                    )
+                except Exception:
+                    logger.warning("Failed to send IBKR disconnect alert", exc_info=True)
 
         # _stop_event was set — clean up
         with self._recon_lock:
