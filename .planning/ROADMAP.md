@@ -124,7 +124,10 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. An email is sent when the daily loss circuit breaker triggers, and when a critical system error occurs (scraper failure, IBKR disconnect not auto-recovered, parse failure rate spike)
   2. A SQL query (committed to the repo) returns each trade alert alongside its order status, fill price, current position quantity, and realized/unrealized P&L — runnable against the live PostgreSQL database at any time
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 07-01-PLAN.md — Wave 1: bravos/notifications/ package (send_alert + record_parse_outcome) + settings/secrets config + queries/monitor.sql + unit tests
+- [ ] 07-02-PLAN.md — Wave 2: Wire hook points in gate.py (circuit breaker), connection.py (reconnect-exhausted), run_ingestion.py (re-auth failure + parse spike)
 
 ### Phase 8: Live Deployment
 **Goal**: The system is running as hardened systemd services with production secrets, the live IBKR account is connected, and the deployment is resilient to IB Gateway nightly restarts and Chrome memory growth
@@ -150,5 +153,5 @@ Note: Phase 3 depends on Phase 1 only (not Phase 2), and can be developed in par
 | 4. Risk Controls and Order Execution | 0/TBD | Not started | - |
 | 5. Fill Capture and Position Reconciliation | 0/3 | Planned     | - |
 | 6. Paper Trading Validation | 3/3 | Complete (SC-4 deferred) | 2026-05-20 |
-| 7. Notifications and Monitoring Query | 0/TBD | Not started | - |
+| 7. Notifications and Monitoring Query | 0/2 | Planned | - |
 | 8. Live Deployment | 0/TBD | Not started | - |
