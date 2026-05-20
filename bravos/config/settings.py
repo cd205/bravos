@@ -26,6 +26,9 @@ MAX_ALLOCATION_PCT   = float(os.environ.get("MAX_ALLOCATION_PCT", "0.25"))      
 DAILY_LOSS_THRESHOLD = float(os.environ.get("DAILY_LOSS_THRESHOLD", "-5000.0"))  # -$5,000 circuit breaker (RISK-03)
 WEIGHT_PCT_PER_UNIT  = float(os.environ.get("WEIGHT_PCT_PER_UNIT", "0.05"))      # 5% NLV per weight unit (EXEC-01)
 
+# Notifications (Phase 7)
+ALERT_EMAIL = os.environ.get("ALERT_EMAIL", "")
+
 # Scraping — URLs and selectors (confirmed via selector discovery 2026-05-08)
 LOGIN_URL = f"{BRAVOS_BASE_URL}/my-account/"
 # Post body selector confirmed against live post page

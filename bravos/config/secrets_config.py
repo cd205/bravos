@@ -17,6 +17,9 @@ REQUIRED_SECRETS = [
     "bravos-ibkr-port",
     "bravos-ibkr-clientid",
     "bravos-db-password",
+    # Phase 7: SMTP alerting credentials
+    "bravos-alert-smtp-password",
+    "bravos-alert-smtp-from",
 ]
 
 
