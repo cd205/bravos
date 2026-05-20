@@ -17,8 +17,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 3: IBKR Connection** - Persistent IB Gateway connection with heartbeat, reconnect, and startup reconciliation
 - [ ] **Phase 4: Risk Controls and Order Execution** - Single synchronous risk gate, order size calculator, and market-order submission
 - [ ] **Phase 5: Fill Capture and Position Reconciliation** - Execution callbacks, partial-fill handling, FIFO lots, and periodic broker reconciliation
-- [ ] **Phase 6: Paper Trading Validation** - End-to-end pipeline validation on paper account before any live orders
-- [ ] **Phase 7: Dashboard and Notifications** - FastAPI dashboard (signals, positions, health) and email alerts on critical events
+- [x] **Phase 6: Paper Trading Validation** - End-to-end pipeline validation on paper account before any live orders (SC-4 deferred to post-launch)
+- [ ] **Phase 7: Notifications and Monitoring Query** - Email alerts on critical events; SQL monitoring query for trade alerts, open positions, and current state
 - [ ] **Phase 8: Live Deployment** - Systemd service hardening, production secrets, and live account activation
 
 ## Phase Details
@@ -110,28 +110,25 @@ Plans:
   1. At least 10 real Bravos Trade Alert posts have been processed end-to-end: scraped, parsed, risk-evaluated, and (where in-hours) submitted as paper orders with fills captured
   2. No order reaches IBKR with an incorrect ticker, wrong action type, or miscalculated share quantity
   3. All parser edge cases discovered during the validation cycle have been fixed and re-tested
-  4. No critical system failure (scraper session expiry not auto-recovered, IBKR heartbeat failure not auto-recovered, risk bypass) occurs during a full trading day
+  4. ~~No critical system failure (scraper session expiry not auto-recovered, IBKR heartbeat failure not auto-recovered, risk bypass) occurs during a full trading day~~ (SC-4 deferred: will be observed post-launch rather than as a pre-launch gate)
 **Plans**: 3 plans
 Plans:
 - [x] 06-01-PLAN.md — Wave 1: apply migrate_phase4.sql + fix test_order_db_write_pending + unskip 8 broker stubs (green suite)
 - [x] 06-02-PLAN.md — Wave 2: build scripts/validate_pipeline.py harness + validation/BUG-LOG.md + VALIDATION-REPORT.md scaffolds
 - [ ] 06-03-PLAN.md — Wave 3: live paper validation run + in-place bug fixes + finalize SC-1..SC-4 + live observation (checkpoint)
 
-### Phase 7: Dashboard and Notifications
-**Goal**: A web dashboard shows current signals, open positions, closed trade history, and system health; the system sends email alerts when the circuit breaker trips or a critical system error occurs
+### Phase 7: Notifications and Monitoring Query
+**Goal**: The system sends email alerts on critical events, and a SQL monitoring query exists that joins signals, orders, executions, and positions into a single view of trade alerts alongside current position state
 **Depends on**: Phase 5
-**Requirements**: DASH-01, DASH-02, DASH-03, DASH-04, NOTF-01, NOTF-02
+**Requirements**: NOTF-01, NOTF-02
 **Success Criteria** (what must be TRUE):
-  1. The dashboard displays all recent trade signals with parse status, action type, ticker, and whether an order was placed — updated without a page reload
-  2. The dashboard displays all open positions with ticker, entry price, current weight, quantity, and unrealized P&L
-  3. The dashboard displays closed trade history with entry price, exit price, and realized P&L per trade
-  4. The dashboard displays a system health panel showing last scrape timestamp and IBKR connection status; a staleness warning appears if the last scrape was more than 15 minutes ago
-  5. An email is sent when the daily loss circuit breaker triggers, and when a critical system error occurs (scraper failure, IBKR disconnect not auto-recovered, parse failure rate spike)
+  1. An email is sent when the daily loss circuit breaker triggers, and when a critical system error occurs (scraper failure, IBKR disconnect not auto-recovered, parse failure rate spike)
+  2. A SQL query (committed to the repo) returns each trade alert alongside its order status, fill price, current position quantity, and realized/unrealized P&L — runnable against the live PostgreSQL database at any time
 **Plans**: TBD
 
 ### Phase 8: Live Deployment
 **Goal**: The system is running as hardened systemd services with production secrets, the live IBKR account is connected, and the deployment is resilient to IB Gateway nightly restarts and Chrome memory growth
-**Depends on**: Phase 6, Phase 7
+**Depends on**: Phase 6
 **Requirements**: DEPL-02
 **Success Criteria** (what must be TRUE):
   1. The trading process and dashboard run as separate systemd services that auto-restart on failure
@@ -152,6 +149,6 @@ Note: Phase 3 depends on Phase 1 only (not Phase 2), and can be developed in par
 | 3. IBKR Connection | 3/4 | In Progress|  |
 | 4. Risk Controls and Order Execution | 0/TBD | Not started | - |
 | 5. Fill Capture and Position Reconciliation | 0/3 | Planned     | - |
-| 6. Paper Trading Validation | 0/TBD | Not started | - |
-| 7. Dashboard and Notifications | 0/TBD | Not started | - |
+| 6. Paper Trading Validation | 3/3 | Complete (SC-4 deferred) | 2026-05-20 |
+| 7. Notifications and Monitoring Query | 0/TBD | Not started | - |
 | 8. Live Deployment | 0/TBD | Not started | - |

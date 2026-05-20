@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-05-18T08:15:04.587Z",
+  "timestamp": "2026-05-20T05:46:36.447Z",
   "source": "auto-postool",
   "partial": false,
   "phase": null,
@@ -9,15 +9,9 @@
   "plan": "1",
   "task": null,
   "total_tasks": null,
-  "status": "SC-1/SC-2/SC-3 PASS — SC-4 pending live observation",
-  "completed_tasks": [
-    "Wave 1: harness + DB chain verification",
-    "Wave 2: IBKR connection + dry-run flows",
-    "Wave 3: 10/10 PASS — BUG-01 fixed, VALIDATION-REPORT.md written"
-  ],
-  "remaining_tasks": [
-    "SC-4: run daemon through one full NYSE trading day; verify INGST-07/IBKR-02/IBKR-04 in logs"
-  ],
+  "status": "auto-checkpoint",
+  "completed_tasks": [],
+  "remaining_tasks": [],
   "blockers": [
     {
       "description": "[Phase 1]: Parser regex patterns must be validated against 20+ real Bravos alert samples before connecting to execution path. Real post format variation is unconfirmed.",
@@ -174,10 +168,22 @@
       "path": ".planning/HANDOFF.json"
     },
     {
+      "status": "M",
+      "path": ".planning/ROADMAP.md"
+    },
+    {
+      "status": "M",
+      "path": "validation/VALIDATION-REPORT.md"
+    },
+    {
       "status": "??",
       "path": ".planning/phases/06-paper-trading-validation/06-PATTERNS.md"
+    },
+    {
+      "status": "??",
+      "path": ".planning/phases/07-notifications-and-monitoring-query/07-RESEARCH.md"
     }
   ],
-  "next_action": "SC-4 live observation: run bravos daemon through one full NYSE trading day and check logs for INGST-07/IBKR-02/IBKR-04 events. Then close Phase 6.",
-  "context_notes": "Wave 3 complete: 10/10 PASS on 2026-05-18. SC-1 (10 posts), SC-2 (correct ticker+action, all 4 types), SC-3 (BUG-01 fixed) all PASS. SC-4 requires live observation. VALIDATION-REPORT.md written. 9/10 posts confidence=medium (no weight data in post body) — harness treats these as signal-only, consistent with risk gate design. Order→fill path exercised only for high-confidence signals during market hours."
+  "next_action": null,
+  "context_notes": "Stopped at: Phase 7 context gathered\n\nRecent commits:\n6c451be docs(state): record phase 7 context session\n097b792 docs(07): capture phase context\nedcb07a docs(phase-06): write VALIDATION-REPORT.md — 10/10 PASS, SC-1/SC-2/SC-3 complete\nbf101a1 fix(06-03): treat absent risk_gate_log as signal-only PASS for duplicate URLs\n80f94ea fix(06-03): add TICKER_PAREN_RE fallback for og:title format without dollar sign"
 }
