@@ -131,6 +131,42 @@ def run_cycle():
         )
 
 
+def _restart_chrome_driver():
+    """Recycle Chrome driver nightly to prevent memory accumulation (D-02, D-03).
+
+    Called by schedule at 06:00 UTC (~01:00 ET winter). Daemon stays alive;
+    only the Chrome driver is recycled. _scraper is set to None BEFORE
+    shutdown so run_cycle() returns early via its existing null-guard
+    (line 92) if it fires concurrently. _scraper is only reassigned AFTER
+    BravosScraper.startup() succeeds; if startup raises, the daemon continues
+    with _scraper=None until the next nightly attempt.
+    """
+    global _scraper
+    logger.info("Nightly Chrome driver restart starting -- recycling BravosScraper (D-02)")
+
+    old_scraper = _scraper
+    _scraper = None  # Guard: run_cycle returns early if _scraper is None (line 92)
+
+    if old_scraper is not None:
+        try:
+            old_scraper.shutdown()
+            logger.info("Old Chrome driver shut down")
+        except Exception:
+            logger.warning("Error during old scraper shutdown -- continuing", exc_info=True)
+
+    try:
+        new_scraper = BravosScraper()
+        new_scraper.startup()
+        _scraper = new_scraper
+        logger.info("Nightly Chrome driver restart complete -- new driver active and logged in")
+    except Exception:
+        logger.exception(
+            "Nightly Chrome driver restart FAILED -- daemon continues without scraper. "
+            "process_alert() calls will be skipped until the next nightly attempt at 06:00 UTC."
+        )
+        # _scraper remains None; run_cycle() null-guard at line 92 handles this safely.
+
+
 def main():
     global _scraper
 
@@ -228,6 +264,14 @@ def main():
     # blocked by the previous day's drawdown.
     schedule.every().day.at("14:30").do(_gate.reset)
     logger.info("Scheduled daily RiskGate reset at 14:30 UTC (09:30 ET winter)")
+
+    # Phase 8 (D-02, D-03): nightly Chrome driver restart to prevent memory accumulation.
+    # 06:00 UTC = 01:00 ET (EST, UTC-5). During EDT (summer, UTC-4) this fires at
+    # 02:00 ET -- 1 hour late. Known DST limitation; both windows are well within
+    # the safe interval (after ~12:15am ET Gateway restart, before 4am ET pre-market).
+    # Daemon stays alive; only the Chrome driver is recycled in-process.
+    schedule.every().day.at("06:00").do(_restart_chrome_driver)
+    logger.info("Scheduled nightly Chrome driver restart at 06:00 UTC (~01:00 ET winter, D-02/D-03)")
 
     # Run first cycle immediately to confirm session is healthy after startup
     logger.info("Running initial scrape cycle...")
