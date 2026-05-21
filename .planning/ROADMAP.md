@@ -139,7 +139,7 @@ Plans:
   3. The system handles IB Gateway's nightly restart window without operator intervention and resumes normal operation when Gateway comes back
 **Plans**: 3 plans
 Plans:
-- [ ] 08-01-PLAN.md — Wave 1: systemd unit files (bravos-trading.service, bravos-gmail.service) + /etc/bravos/env template
+- [x] 08-01-PLAN.md — Wave 1: systemd unit files (bravos-trading.service, bravos-gmail.service) + /etc/bravos/env template
 - [ ] 08-02-PLAN.md — Wave 1: nightly Chrome driver restart in run_ingestion.py + scripts/run_gmail.py stub + tests/test_deployment.py
 - [ ] 08-03-PLAN.md — Wave 2: install units on bravos-vm1, live cutover (TRADING_MODE=live), observe Gateway nightly restart (operator-driven, autonomous=false)
 
@@ -158,4 +158,4 @@ Note: Phase 3 depends on Phase 1 only (not Phase 2), and can be developed in par
 | 5. Fill Capture and Position Reconciliation | 0/3 | Planned     | - |
 | 6. Paper Trading Validation | 3/3 | Complete (SC-4 deferred) | 2026-05-20 |
 | 7. Notifications and Monitoring Query | 0/2 | Planned | - |
-| 8. Live Deployment | 0/3 | Planned | - |
+| 8. Live Deployment | 1/3 | In Progress|  |

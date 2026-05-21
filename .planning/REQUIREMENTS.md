@@ -69,7 +69,7 @@
 ### Deployment
 
 - [x] **DEPL-01**: System runs on a GCP VM (Linux) with IB Gateway installed; IB Gateway runs persistently with 2FA handled at operator startup only
-- [ ] **DEPL-02**: Trading process and dashboard are managed as separate systemd services with auto-restart on failure
+- [x] **DEPL-02**: Trading process and dashboard are managed as separate systemd services with auto-restart on failure
 - [x] **DEPL-03**: PostgreSQL is installed on the VM with the trading schema (signals, orders, position_lots, executions, broker_positions_snapshot)
 - [x] **DEPL-04**: Bravos Research credentials and IBKR configuration are stored in GCP Secret Manager or environment variables — never in code or committed files
 - [x] **DEPL-05**: Chromium runs in headless mode for Selenium scraping with appropriate anti-detection flags
@@ -156,7 +156,7 @@
 | DASH-04 | Phase 7 | Pending |
 | NOTF-01 | Phase 7 | Pending |
 | NOTF-02 | Phase 7 | Pending |
-| DEPL-02 | Phase 8 | Pending |
+| DEPL-02 | Phase 8 | Complete |
 
 **Coverage:**
 - v1 requirements: 42 total
