@@ -1,0 +1,17 @@
+[Unit]
+Description=Bravos Gmail Poller (placeholder - INGST-V2-01)
+After=network.target ibgateway.service cloud-sql-proxy.service
+
+[Service]
+Type=simple
+ExecStart=/home/chris_s_dodd/miniconda3/bin/python /home/chris_s_dodd/bravos/scripts/run_gmail.py
+WorkingDirectory=/home/chris_s_dodd/bravos
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+User=chris_s_dodd
+EnvironmentFile=/etc/bravos/env
+
+[Install]
+WantedBy=multi-user.target
