@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 status: ready_to_plan
 stopped_at: Phase 8 context gathered
-last_updated: "2026-05-21T10:34:46.347Z"
+last_updated: "2026-05-21T12:55:46.679Z"
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 32
-  completed_plans: 29
-  percent: 91
+  completed_plans: 30
+  percent: 94
 ---
 
 # Project State
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-05-01)
 ## Current Position
 
 Phase: 08 (live-deployment) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Plan: 2 of 3
 | Phase 03 P02 | 3min | 2 tasks | 2 files |
 | Phase 03 P03 | 3min | 2 tasks | 2 files |
 | Phase 08 P01 | 3min | 3 tasks | 3 files |
+| Phase 08 P02 | 8min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,10 @@ Recent decisions affecting current work:
 - [Phase 03]: DB integration tests deferred to bravos-vm1 — Cloud SQL Auth Proxy not running on dev VM; 2 tests unskipped and will run on VM
 - [Phase 03]: Helper functions _write_position_snapshot and _reconcile_against_db are module-level not IBApp methods — DB operations logically separate from IBKR connection class
 - [Phase ?]: Locked in 08-01
+- [Phase 08-02]: schedule string '06:00' UTC (not '01:00') — schedule library uses VM local time; '01:00' would fire at 8pm ET (market hours)
+- [Phase 08-02]: _scraper=None guard set BEFORE old_scraper.shutdown() — run_cycle null-guard at line 92 provides safe concurrent access without a lock
+- [Phase 08-02]: DST limitation accepted — 06:00 UTC = 01:00 ET winter / 02:00 ET summer; both inside safe window after Gateway restart, before pre-market
+- [Phase 08-02]: run_gmail.py is a pure stub (no IMAP, no process_alert) — INGST-V2-01 tracked as future phase; stub prevents bravos-gmail.service thrash
 
 ### Pending Todos
 
@@ -107,7 +112,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-05-21T10:34:46.331Z
-Stopped at: Phase 8 context gathered
+Last session: 2026-05-21T12:55:46.657Z
+Stopped at: Completed 08-02-PLAN.md — nightly Chrome restart and Gmail stub
 Resume file: None
 Next action: /gsd:execute-phase 3
