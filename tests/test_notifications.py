@@ -25,7 +25,7 @@ def test_send_alert_no_recipient(monkeypatch, caplog):
     import bravos.notifications.notifier as notifier
     monkeypatch.setattr(notifier, "ALERT_EMAIL", "")
     with patch.object(notifier, "get_secret") as mock_secret, \
-         patch("smtplib.SMTP") as mock_smtp:
+         patch("bravos.notifications.notifier.smtplib.SMTP") as mock_smtp:
         notifier.send_alert("test subject", "test body")
     mock_secret.assert_not_called()
     mock_smtp.assert_not_called()

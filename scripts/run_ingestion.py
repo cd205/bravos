@@ -235,7 +235,12 @@ def main():
 
     logger.info("Ingestion daemon started — polling every %ds", SCRAPE_INTERVAL_SECONDS)
     while not _shutdown:
-        schedule.run_pending()
+        try:
+            schedule.run_pending()
+        except Exception:
+            # CR-02: schedule does not swallow job exceptions; guard here so a crashed
+            # Chrome driver or other unhandled error in run_cycle does not kill the daemon.
+            logger.exception("Unhandled exception in scheduled job — daemon continues")
         time.sleep(1)
 
     # Graceful cleanup

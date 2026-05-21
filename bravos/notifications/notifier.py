@@ -9,6 +9,7 @@ and fires send_alert() once when 3+ of the last 10 signals fail (D-03).
 """
 import smtplib
 import logging
+import threading
 from collections import deque
 from email.mime.text import MIMEText
 
@@ -25,6 +26,7 @@ SUBJECT_PREFIX = "[Bravos Alert]"
 # reverse dependency from scraper.py back into run_ingestion.py)
 _parse_outcomes: deque = deque(maxlen=10)   # True=success, False=failure
 _spike_alerted: bool = False
+_spike_lock = threading.Lock()
 SPIKE_THRESHOLD = 3
 
 
@@ -63,19 +65,31 @@ def record_parse_outcome(parsed: dict) -> None:
         or parsed.get("ticker") is None
     )
     _parse_outcomes.append(not is_failure)  # True = success
-    failure_count = sum(1 for ok in _parse_outcomes if not ok)
 
-    if failure_count >= SPIKE_THRESHOLD and not _spike_alerted:
-        _spike_alerted = True
+    # WR-02: lock the check-then-set so concurrent callers (Gmail poller thread +
+    # main thread) cannot both pass the `not _spike_alerted` guard and double-fire.
+    with _spike_lock:
+        failure_count = sum(1 for ok in _parse_outcomes if not ok)
+        if failure_count >= SPIKE_THRESHOLD and not _spike_alerted:
+            _spike_alerted = True
+            should_alert = True
+            alert_count = failure_count
+            alert_window = len(_parse_outcomes)
+            alert_ts = _dt.datetime.now().isoformat()
+        elif failure_count < SPIKE_THRESHOLD:
+            _spike_alerted = False
+            should_alert = False
+        else:
+            should_alert = False
+
+    if should_alert:
         logger.error(
             "Parse failure spike: %d failures in last %d signals",
-            failure_count, len(_parse_outcomes),
+            alert_count, alert_window,
         )
         send_alert(
             "Parse Failure Spike",
-            f"Parse failure spike detected at {_dt.datetime.now().isoformat()}\n"
-            f"Failures: {failure_count} out of last {len(_parse_outcomes)} signals\n"
+            f"Parse failure spike detected at {alert_ts}\n"
+            f"Failures: {alert_count} out of last {alert_window} signals\n"
             f"Check bravosresearch.com post format for unexpected changes.",
         )
-    elif failure_count < SPIKE_THRESHOLD:
-        _spike_alerted = False  # window recovered — re-arm for next spike

@@ -112,7 +112,6 @@ class RiskGate:
             # Phase 7: email alert (D-01, NOTF-01) — deferred import avoids circular dep
             try:
                 from bravos.notifications.notifier import send_alert
-                import datetime
                 send_alert(
                     "Circuit Breaker Triggered",
                     f"Daily P&L circuit breaker triggered at {datetime.datetime.now().isoformat()}\n"

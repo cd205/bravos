@@ -17,6 +17,16 @@ WITH latest_gate AS (
     FROM risk_gate_log
     ORDER BY signal_id, checked_at DESC
 ),
+latest_order AS (
+    -- Most recent order per signal (CR-01: orders has no UNIQUE on signal_id;
+    -- without this a signal with multiple orders would fan out to multiple rows)
+    SELECT DISTINCT ON (signal_id)
+        signal_id,
+        status,
+        fill_price
+    FROM orders
+    ORDER BY signal_id, created_at DESC
+),
 open_qty AS (
     -- Current open quantity per ticker (open lots only)
     SELECT ticker, SUM(quantity) AS open_quantity
@@ -38,13 +48,13 @@ SELECT
     s.action_type,
     s.confidence,
     lg.gate_passed,
-    o.status           AS order_status,
-    o.fill_price,
+    lo.status          AS order_status,
+    lo.fill_price,
     oq.open_quantity,
     r.realized_pnl
 FROM signals s
-LEFT JOIN latest_gate lg  ON lg.signal_id = s.id
-LEFT JOIN orders o        ON o.signal_id  = s.id
-LEFT JOIN open_qty oq     ON oq.ticker    = s.ticker
-LEFT JOIN realized r      ON r.ticker     = s.ticker
+LEFT JOIN latest_gate  lg ON lg.signal_id = s.id
+LEFT JOIN latest_order lo ON lo.signal_id = s.id
+LEFT JOIN open_qty     oq ON oq.ticker    = s.ticker
+LEFT JOIN realized      r ON r.ticker     = s.ticker
 ORDER BY s.parsed_at DESC;
