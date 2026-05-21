@@ -1,10 +1,10 @@
 {
   "version": "1.0",
-  "timestamp": "2026-05-20T05:46:36.447Z",
+  "timestamp": "2026-05-21T07:35:39.760Z",
   "source": "auto-postool",
   "partial": false,
   "phase": null,
-  "phase_name": "06 (paper-trading-validation) — EXECUTING",
+  "phase_name": "07 (notifications-and-monitoring-query) — EXECUTING",
   "phase_dir": null,
   "plan": "1",
   "task": null,
@@ -169,21 +169,13 @@
     },
     {
       "status": "M",
-      "path": ".planning/ROADMAP.md"
-    },
-    {
-      "status": "M",
       "path": "validation/VALIDATION-REPORT.md"
     },
     {
       "status": "??",
-      "path": ".planning/phases/06-paper-trading-validation/06-PATTERNS.md"
-    },
-    {
-      "status": "??",
-      "path": ".planning/phases/07-notifications-and-monitoring-query/07-RESEARCH.md"
+      "path": ".planning/phases/08-live-deployment/08-RESEARCH.md"
     }
   ],
   "next_action": null,
-  "context_notes": "Stopped at: Phase 7 context gathered\n\nRecent commits:\n6c451be docs(state): record phase 7 context session\n097b792 docs(07): capture phase context\nedcb07a docs(phase-06): write VALIDATION-REPORT.md — 10/10 PASS, SC-1/SC-2/SC-3 complete\nbf101a1 fix(06-03): treat absent risk_gate_log as signal-only PASS for duplicate URLs\n80f94ea fix(06-03): add TICKER_PAREN_RE fallback for og:title format without dollar sign"
+  "context_notes": "Stopped at: Phase 8 context gathered\n\nRecent commits:\n68aa054 docs(state): record phase 8 context session\n16c1bae docs(08): capture phase context\neb8ead1 fix(07): address code review findings CR-01, CR-02, WR-02, WR-05, IN-03\n5d26d6c docs(07): add code review report\n6a7d0bd docs(07-02): create SUMMARY.md for plan 07-02 completion"
 }
