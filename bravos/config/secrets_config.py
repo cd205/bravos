@@ -20,6 +20,8 @@ REQUIRED_SECRETS = [
     # Phase 7: SMTP alerting credentials
     "bravos-alert-smtp-password",
     "bravos-alert-smtp-from",
+    # Gmail poller (INGST-V2-01): App Password for IMAP access
+    "bravos-gmail-app-password",
 ]
 
 
