@@ -37,6 +37,8 @@ POST_BODY_SELECTOR = ".entry-content"
 LOGIN_USERNAME_ID = "username"
 LOGIN_PASSWORD_ID = "password"
 LOGIN_SUBMIT_XPATH = "//button[@type='submit'] | //input[@type='submit']"
+# Inter-process communication: Gmail poller sends URLs to trading daemon via Unix socket
+ALERT_SOCKET_PATH = os.environ.get("ALERT_SOCKET_PATH", "/tmp/bravos-alerts.sock")
 # Gmail poller filter
 GMAIL_SENDER_FILTER = "from:bravosresearch.com"
 GMAIL_SUBJECT_KEYWORD = "New Trade Alert"

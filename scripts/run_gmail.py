@@ -3,13 +3,15 @@
 Bravos Trading System — Gmail Poller (INGST-V2-01).
 
 Polls Gmail via IMAP for Bravos Trade Alert notification emails, extracts
-post URLs, and calls scraper.process_alert(url) for each new alert.
+post URLs, and dispatches them to the trading daemon via Unix domain socket.
+The trading daemon owns the BravosScraper / Chrome session — this process
+does IMAP only, keeping Chrome instances to exactly one.
 
 Dedup: each processed email is recorded by its Gmail Message-ID in the
 signals.gmail_message_id column (UNIQUE). An email is skipped if its
 Message-ID already exists in the DB — even across restarts or --since
-backfill runs. The existing signals.post_url UNIQUE constraint provides
-a second independent dedup guard in _store_signal().
+backfill runs. The existing signals.post_url UNIQUE constraint in
+_store_signal() provides a second independent dedup guard.
 
 Usage:
     python scripts/run_gmail.py                     # poll from now
@@ -22,15 +24,13 @@ Setup (one-time):
     3. Store it in GCP Secret Manager:
          echo -n "your-16-char-app-password" | \
            gcloud secrets create bravos-gmail-app-password --data-file=-
-       (or update if it already exists):
-         echo -n "your-16-char-app-password" | \
-           gcloud secrets versions add bravos-gmail-app-password --data-file=-
     4. Apply the DB migration on bravos-vm1:
          psql -h 127.0.0.1 -U bravos bravos_trading -f infra/migrate_gmail.sql
 
 Environment variables read at runtime:
     ALERT_EMAIL        — Gmail account to poll (set in /etc/bravos/env)
     BRAVOS_DB_PASSWORD — DB password (set in /etc/bravos/env)
+    ALERT_SOCKET_PATH  — Unix socket path (default /tmp/bravos-alerts.sock)
 """
 import argparse
 import email
@@ -38,10 +38,11 @@ import imaplib
 import os
 import re
 import signal
+import socket
 import sys
 import time
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -50,7 +51,6 @@ import psycopg2
 
 from bravos.config import settings
 from bravos.config.secrets_config import get_secret
-from bravos.ingestion.scraper import BravosScraper
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,7 +63,6 @@ IMAP_HOST = "imap.gmail.com"
 IMAP_PORT = 993
 POLL_INTERVAL_SECONDS = 60
 
-# Matches any https://bravosresearch.com/... URL in an email body.
 _URL_RE = re.compile(r"https://bravosresearch\.com/[^\s\"'<>]+", re.IGNORECASE)
 
 _shutdown = False
@@ -87,7 +86,6 @@ def _db_connect() -> psycopg2.extensions.connection:
 
 
 def _is_message_id_seen(conn, message_id: str) -> bool:
-    """Return True if this Gmail Message-ID is already in the signals table."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT 1 FROM signals WHERE gmail_message_id = %s LIMIT 1",
@@ -97,13 +95,7 @@ def _is_message_id_seen(conn, message_id: str) -> bool:
 
 
 def _mark_message_id_seen(conn, message_id: str):
-    """Insert a placeholder row so this Message-ID is never reprocessed.
-
-    If process_alert() already inserted the row (with a real signal_id), the
-    ON CONFLICT DO NOTHING here is a no-op. If the email body had no parseable
-    URL (or the URL was already deduped via post_url), we still record the
-    Message-ID so the email is not retried on the next poll cycle.
-    """
+    """Record Message-ID even when no URL was found, so we don't retry it."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -125,7 +117,7 @@ def _mark_message_id_seen(conn, message_id: str):
 
 
 def _set_gmail_message_id(conn, message_id: str, post_url: str):
-    """Back-fill gmail_message_id onto the signal row that was just inserted by process_alert()."""
+    """Back-fill gmail_message_id onto the signal row written by process_alert()."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -140,12 +132,10 @@ def _set_gmail_message_id(conn, message_id: str, post_url: str):
 
 
 def _extract_urls(msg: email.message.Message) -> list[str]:
-    """Extract all bravosresearch.com URLs from email body (plain text or HTML)."""
     urls = []
     if msg.is_multipart():
         for part in msg.walk():
-            ct = part.get_content_type()
-            if ct in ("text/plain", "text/html"):
+            if part.get_content_type() in ("text/plain", "text/html"):
                 try:
                     body = part.get_payload(decode=True).decode("utf-8", errors="replace")
                     urls.extend(_URL_RE.findall(body))
@@ -157,7 +147,6 @@ def _extract_urls(msg: email.message.Message) -> list[str]:
             urls.extend(_URL_RE.findall(body))
         except Exception:
             pass
-    # deduplicate while preserving order
     seen: set[str] = set()
     result = []
     for u in urls:
@@ -167,20 +156,47 @@ def _extract_urls(msg: email.message.Message) -> list[str]:
     return result
 
 
+def _dispatch_url_to_daemon(url: str) -> bool:
+    """Send a URL to the trading daemon via Unix socket. Returns True on success."""
+    sock_path = settings.ALERT_SOCKET_PATH
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(30)
+            s.connect(sock_path)
+            s.sendall(f"{url}\n".encode())
+            response = b""
+            while b"\n" not in response:
+                chunk = s.recv(256)
+                if not chunk:
+                    break
+                response += chunk
+            resp = response.decode("utf-8", errors="replace").strip()
+            if resp == "OK":
+                return True
+            else:
+                logger.error("Daemon returned error for url=%s: %s", url, resp)
+                return False
+    except FileNotFoundError:
+        logger.error(
+            "Alert socket not found at %s — is bravos-trading.service running?", sock_path
+        )
+        return False
+    except Exception:
+        logger.exception("Failed to dispatch url=%s to trading daemon", url)
+        return False
+
+
 def _imap_search_criteria(since_date: date | None) -> str:
-    """Build IMAP SEARCH criteria string."""
     parts = [
         f'FROM "bravosresearch.com"',
         f'SUBJECT "{settings.GMAIL_SUBJECT_KEYWORD}"',
     ]
     if since_date is not None:
-        # IMAP date format: DD-Mon-YYYY
         parts.append(f'SINCE "{since_date.strftime("%d-%b-%Y")}"')
     return " ".join(parts)
 
 
-def _fetch_matching_message_ids(imap: imaplib.IMAP4_SSL, since_date: date | None) -> list[bytes]:
-    """Search INBOX for matching messages; return list of IMAP sequence numbers."""
+def _fetch_matching_seq_nums(imap: imaplib.IMAP4_SSL, since_date: date | None) -> list[bytes]:
     criteria = _imap_search_criteria(since_date)
     status, data = imap.search(None, criteria)
     if status != "OK" or not data or not data[0]:
@@ -189,7 +205,6 @@ def _fetch_matching_message_ids(imap: imaplib.IMAP4_SSL, since_date: date | None
 
 
 def _get_message_id_header(imap: imaplib.IMAP4_SSL, seq_num: bytes) -> str | None:
-    """Fetch only the Message-ID header for a message (avoids downloading full body twice)."""
     status, data = imap.fetch(seq_num, "(BODY[HEADER.FIELDS (MESSAGE-ID)])")
     if status != "OK" or not data or not data[0]:
         return None
@@ -216,15 +231,11 @@ def _connect_imap(gmail_account: str, app_password: str) -> imaplib.IMAP4_SSL:
 
 def process_emails(
     imap: imaplib.IMAP4_SSL,
-    scraper: BravosScraper,
     db_conn: psycopg2.extensions.connection,
     since_date: date | None,
 ) -> int:
-    """Fetch matching emails, dedup, and call process_alert() for each new URL.
-
-    Returns the count of new alerts dispatched.
-    """
-    seq_nums = _fetch_matching_message_ids(imap, since_date)
+    """Fetch matching emails, dedup, and dispatch each new URL to the trading daemon."""
+    seq_nums = _fetch_matching_seq_nums(imap, since_date)
     if not seq_nums:
         return 0
 
@@ -250,7 +261,7 @@ def process_emails(
         urls = _extract_urls(msg)
         if not urls:
             logger.warning(
-                "Message-ID %s matched subject/sender but contained no bravosresearch.com URL — marking seen",
+                "Message-ID %s matched but contained no bravosresearch.com URL — marking seen",
                 message_id,
             )
             _mark_message_id_seen(db_conn, message_id)
@@ -258,14 +269,12 @@ def process_emails(
 
         for url in urls:
             logger.info("Dispatching alert: Message-ID=%s url=%s", message_id, url)
-            try:
-                scraper.process_alert(url)
-                # Back-fill the message_id onto the signal row process_alert() just wrote.
+            success = _dispatch_url_to_daemon(url)
+            if success:
                 _set_gmail_message_id(db_conn, message_id, url)
                 dispatched += 1
-            except Exception:
-                logger.exception("process_alert failed for url=%s — continuing", url)
-                # Still mark seen so we don't retry a broken URL forever.
+            else:
+                # Mark seen anyway to avoid infinite retry on a broken URL
                 _mark_message_id_seen(db_conn, message_id)
 
     return dispatched
@@ -276,7 +285,7 @@ def main():
     parser.add_argument(
         "--since",
         metavar="YYYY-MM-DD",
-        help="Process emails on or after this date (backfill). Default: all unprocessed emails.",
+        help="Process emails on or after this date (backfill).",
         default=None,
     )
     args = parser.parse_args()
@@ -295,23 +304,17 @@ def main():
 
     gmail_account = settings.ALERT_EMAIL
     if not gmail_account:
-        logger.error("ALERT_EMAIL is not set — cannot connect to Gmail. Set it in /etc/bravos/env.")
+        logger.error("ALERT_EMAIL is not set — set it in /etc/bravos/env")
         sys.exit(1)
 
     logger.info("Fetching Gmail app password from Secret Manager...")
     try:
         app_password = get_secret("bravos-gmail-app-password")
     except Exception:
-        logger.exception("Failed to fetch bravos-gmail-app-password from Secret Manager. "
-                         "See setup instructions in this file's module docstring.")
-        sys.exit(1)
-
-    logger.info("Starting BravosScraper...")
-    scraper = BravosScraper()
-    try:
-        scraper.startup()
-    except Exception:
-        logger.exception("BravosScraper startup failed")
+        logger.exception(
+            "Failed to fetch bravos-gmail-app-password from Secret Manager. "
+            "See setup instructions in this file's module docstring."
+        )
         sys.exit(1)
 
     logger.info("Connecting to Gmail IMAP as %s...", gmail_account)
@@ -319,35 +322,32 @@ def main():
         imap = _connect_imap(gmail_account, app_password)
     except Exception:
         logger.exception("IMAP login failed for %s", gmail_account)
-        scraper.shutdown()
         sys.exit(1)
 
     db_conn = _db_connect()
     logger.info(
-        "Gmail poller running — account=%s since=%s poll_interval=%ds",
+        "Gmail poller running — account=%s since=%s poll_interval=%ds socket=%s",
         gmail_account,
         since_date or "all unprocessed",
         POLL_INTERVAL_SECONDS,
+        settings.ALERT_SOCKET_PATH,
     )
 
     try:
         while not _shutdown:
             try:
-                # Re-SELECT INBOX to pick up new messages on each poll cycle.
                 imap.select("INBOX")
-                dispatched = process_emails(imap, scraper, db_conn, since_date)
+                dispatched = process_emails(imap, db_conn, since_date)
                 if dispatched:
                     logger.info("Poll cycle: dispatched %d new alert(s)", dispatched)
                 else:
                     logger.debug("Poll cycle: no new alerts")
 
-                # After the first backfill pass, only look at emails from today
-                # onwards so IMAP search stays fast on large inboxes.
+                # After first backfill pass, only look at today's emails
                 if since_date is not None:
                     since_date = date.today()
 
             except imaplib.IMAP4.abort:
-                # Connection dropped — reconnect and continue.
                 logger.warning("IMAP connection aborted — reconnecting")
                 try:
                     imap = _connect_imap(gmail_account, app_password)
@@ -356,7 +356,6 @@ def main():
             except Exception:
                 logger.exception("Poll cycle error — will retry next cycle")
 
-            # Sleep in 1s ticks so SIGTERM is handled promptly.
             for _ in range(POLL_INTERVAL_SECONDS):
                 if _shutdown:
                     break
@@ -371,7 +370,6 @@ def main():
             db_conn.close()
         except Exception:
             pass
-        scraper.shutdown()
         logger.info("Gmail poller stopped")
 
 

@@ -25,8 +25,11 @@ Architecture note (per 02-03 selector discovery):
 
 Per decisions: D-01, D-13, D-16.
 """
+import os
 import signal
+import socket
 import sys
+import threading
 import time
 import logging
 from pathlib import Path
@@ -129,6 +132,72 @@ def run_cycle():
         logger.debug(
             "Periodic reconciliation skipped — ibapp not connected"
         )
+
+
+def _run_alert_socket_server():
+    """Listen on a Unix domain socket for alert URLs from the Gmail poller.
+
+    The Gmail poller sends a newline-terminated URL; this thread calls
+    scraper.process_alert(url) on the trading daemon's existing Chrome session.
+    This avoids the Gmail poller needing its own BravosScraper / Chrome instance.
+
+    Protocol: client sends "<url>\n", server replies "OK\n" or "ERR <msg>\n".
+    """
+    sock_path = settings.ALERT_SOCKET_PATH
+    # Clean up stale socket file from a previous run.
+    try:
+        os.unlink(sock_path)
+    except FileNotFoundError:
+        pass
+
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(sock_path)
+    os.chmod(sock_path, 0o600)
+    server.listen(5)
+    server.settimeout(1.0)
+    logger.info("Alert socket listening at %s", sock_path)
+
+    while not _shutdown:
+        try:
+            conn, _ = server.accept()
+        except socket.timeout:
+            continue
+        except OSError:
+            break
+        try:
+            data = b""
+            while b"\n" not in data:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            url = data.decode("utf-8", errors="replace").strip()
+            if url:
+                logger.info("Alert socket received url=%s", url)
+                if _scraper is not None:
+                    try:
+                        _scraper.process_alert(url)
+                        conn.sendall(b"OK\n")
+                    except Exception as exc:
+                        logger.exception("process_alert failed for url=%s", url)
+                        conn.sendall(f"ERR {exc}\n".encode())
+                else:
+                    logger.warning("Alert socket: scraper not ready, dropping url=%s", url)
+                    conn.sendall(b"ERR scraper not ready\n")
+        except Exception:
+            logger.exception("Alert socket handler error")
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    server.close()
+    try:
+        os.unlink(sock_path)
+    except FileNotFoundError:
+        pass
+    logger.info("Alert socket server stopped")
 
 
 def _restart_chrome_driver():
@@ -253,6 +322,13 @@ def main():
     logger.info("Starting ingestion daemon...")
     _scraper = BravosScraper()
     _scraper.startup()
+
+    # Start the Unix socket server so the Gmail poller can hand off URLs
+    # without needing its own Chrome instance.
+    _socket_thread = threading.Thread(
+        target=_run_alert_socket_server, daemon=True, name="alert-socket"
+    )
+    _socket_thread.start()
 
     # Schedule the scrape cycle (session health check at same interval as alert polling)
     schedule.every(SCRAPE_INTERVAL_SECONDS).seconds.do(run_cycle)
