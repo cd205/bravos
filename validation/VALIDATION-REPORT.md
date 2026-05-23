@@ -1,6 +1,6 @@
 # Phase 6 Validation Report
 
-**Status:** COMPLETE (SC-1, SC-2, SC-3 PASS — SC-4 PENDING live observation)
+**Status:** COMPLETE (SC-1, SC-2, SC-3 PASS — SC-4 DEFERRED by decision)
 **Environment:** bravos-vm1, paper account (TRADING_MODE=paper, port 4002) — D-09
 **Run date:** 2026-05-18 08:13–08:14 UTC
 
@@ -11,7 +11,7 @@
 | SC-1 | At least 10 real Bravos Trade Alert posts processed end-to-end | **PASS** | 10/10 PASS (run 2026-05-18) |
 | SC-2 | No order reaches IBKR with wrong ticker, action type, or quantity (all 4 action types represented — D-02) | **PASS** | All 10 correct ticker+action; all 4 types covered (open×3, add×2, partial_close×3, close×2) |
 | SC-3 | All parser edge cases discovered during validation fixed and re-tested | **PASS** | BUG-01 fixed (see BUG-LOG.md); tests green |
-| SC-4 | No critical system failure during a full trading day (INGST-07 session recovery, IBKR-02 heartbeat recovery, IBKR-04 periodic reconciliation) | **PENDING** | Requires live observation during NYSE hours |
+| SC-4 | No critical system failure during a full trading day (INGST-07 session recovery, IBKR-02 heartbeat recovery, IBKR-04 periodic reconciliation) | **DEFERRED** | Decision 2026-05-20: observe live behavior after system goes live rather than as a validation gate |
 
 ## Per-Scenario Results
 
@@ -50,11 +50,7 @@ weight notation is published and processed live.
 
 ## Live Observation Period (SC-4)
 
-Daemon left running post-seeded-batch to validate timing-sensitive behaviors:
-
-- **INGST-07** session expiry auto-recovery: PENDING
-- **IBKR-02** heartbeat failure auto-recovery: PENDING
-- **IBKR-04** periodic reconciliation runs cleanly each cycle: PENDING
-
-SC-4 closes when operator confirms the daemon ran through at least one full NYSE
-trading day without manual intervention and no critical errors in the logs.
+**DEFERRED** (2026-05-20): SC-4 live observation is deferred to post-launch monitoring.
+The timing-sensitive behaviors (INGST-07 session recovery, IBKR-02 heartbeat recovery,
+IBKR-04 reconciliation) will be observed against real live traffic rather than as a
+pre-launch gate. Phase 6 is considered complete on SC-1/SC-2/SC-3.

@@ -1,12 +1,12 @@
 {
   "version": "1.0",
-  "timestamp": "2026-05-21T07:35:39.760Z",
+  "timestamp": "2026-05-23T07:50:00.617Z",
   "source": "auto-postool",
   "partial": false,
   "phase": null,
-  "phase_name": "07 (notifications-and-monitoring-query) — EXECUTING",
+  "phase_name": "08 (live-deployment) — EXECUTING",
   "phase_dir": null,
-  "plan": "1",
+  "plan": "3",
   "task": null,
   "total_tasks": null,
   "status": "auto-checkpoint",
@@ -160,6 +160,31 @@
       "decision": "[Phase 03]: Helper functions _write_position_snapshot and _reconcile_against_db are module-level not IBApp methods — DB operations logically separate from IBKR connection class",
       "rationale": "",
       "phase": null
+    },
+    {
+      "decision": "[Phase ?]: Locked in 08-01",
+      "rationale": "",
+      "phase": null
+    },
+    {
+      "decision": "[Phase 08-02]: schedule string '06:00' UTC (not '01:00') — schedule library uses VM local time; '01:00' would fire at 8pm ET (market hours)",
+      "rationale": "",
+      "phase": null
+    },
+    {
+      "decision": "[Phase 08-02]: _scraper=None guard set BEFORE old_scraper.shutdown() — run_cycle null-guard at line 92 provides safe concurrent access without a lock",
+      "rationale": "",
+      "phase": null
+    },
+    {
+      "decision": "[Phase 08-02]: DST limitation accepted — 06:00 UTC = 01:00 ET winter / 02:00 ET summer; both inside safe window after Gateway restart, before pre-market",
+      "rationale": "",
+      "phase": null
+    },
+    {
+      "decision": "[Phase 08-02]: run_gmail.py is a pure stub (no IMAP, no process_alert) — INGST-V2-01 tracked as future phase; stub prevents bravos-gmail.service thrash",
+      "rationale": "",
+      "phase": null
     }
   ],
   "uncommitted_files": [
@@ -169,13 +194,21 @@
     },
     {
       "status": "M",
-      "path": "validation/VALIDATION-REPORT.md"
+      "path": ".planning/PROJECT.md"
     },
     {
-      "status": "??",
-      "path": ".planning/phases/08-live-deployment/08-RESEARCH.md"
+      "status": "M",
+      "path": ".planning/ROADMAP.md"
+    },
+    {
+      "status": "M",
+      "path": ".planning/phases/08-live-deployment/08-03-PLAN.md"
+    },
+    {
+      "status": "M",
+      "path": "validation/VALIDATION-REPORT.md"
     }
   ],
   "next_action": null,
-  "context_notes": "Stopped at: Phase 8 context gathered\n\nRecent commits:\n68aa054 docs(state): record phase 8 context session\n16c1bae docs(08): capture phase context\neb8ead1 fix(07): address code review findings CR-01, CR-02, WR-02, WR-05, IN-03\n5d26d6c docs(07): add code review report\n6a7d0bd docs(07-02): create SUMMARY.md for plan 07-02 completion"
+  "context_notes": "Stopped at: Phase 8 context gathered\n\nRecent commits:\naad254f feat(risk): add paper-only BYPASS_MARKET_HOURS testing override\nb2171be fix(gmail): use Unix socket IPC instead of second Chrome instance\n91749b1 feat(gmail): implement Gmail IMAP poller (INGST-V2-01)\nab486fa docs(08-02): update STATE.md and ROADMAP.md after plan 02 completion\n3e57fcb docs(08-02): complete nightly Chrome restart and Gmail stub plan"
 }

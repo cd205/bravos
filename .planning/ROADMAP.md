@@ -19,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 5: Fill Capture and Position Reconciliation** - Execution callbacks, partial-fill handling, FIFO lots, and periodic broker reconciliation
 - [x] **Phase 6: Paper Trading Validation** - End-to-end pipeline validation on paper account before any live orders (SC-4 deferred to post-launch)
 - [ ] **Phase 7: Notifications and Monitoring Query** - Email alerts on critical events; SQL monitoring query for trade alerts, open positions, and current state
-- [ ] **Phase 8: Live Deployment** - Systemd service hardening, production secrets, and live account activation
+- [ ] **Phase 8: Live Deployment** - Systemd service hardening, production secrets, and paper-account production run (pseudo-live; live account switch deferred to post-validation)
 
 ## Phase Details
 
@@ -130,12 +130,12 @@ Plans:
 - [ ] 07-02-PLAN.md — Wave 2: Wire hook points in gate.py (circuit breaker), connection.py (reconnect-exhausted), run_ingestion.py (re-auth failure + parse spike)
 
 ### Phase 8: Live Deployment
-**Goal**: The system is running as hardened systemd services with production secrets, the live IBKR account is connected, and the deployment is resilient to IB Gateway nightly restarts and Chrome memory growth
+**Goal**: The system is running as hardened systemd services with production secrets, connected to the paper IBKR account for a real-signal production run, and resilient to IB Gateway nightly restarts and Chrome memory growth. The paper account acts as pseudo-live: all real Bravos signals flow through the full pipeline and place real orders in paper — the system runs this way for 1–2 months before the broker account is switched to live.
 **Depends on**: Phase 6
 **Requirements**: DEPL-02
 **Success Criteria** (what must be TRUE):
-  1. The trading process and dashboard run as separate systemd services that auto-restart on failure
-  2. The live IBKR account (port 4001) is connected and processing real orders
+  1. The trading process and Gmail poller run as separate systemd services that auto-restart on failure
+  2. The paper IBKR account (port 4002) is connected and processing real Bravos signals as paper orders — TRADING_MODE=paper permanently until manually upgraded
   3. The system handles IB Gateway's nightly restart window without operator intervention and resumes normal operation when Gateway comes back
 **Plans**: 3 plans
 Plans:

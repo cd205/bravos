@@ -77,7 +77,7 @@ When a new trade alert is posted on Bravos Research, the correct order is placed
 | % of portfolio per weight unit | Scales with account size; configurable at runtime | — Pending |
 | Add to position on duplicate BUY signal | User wants to scale in; aligns with Bravos weight system | — Pending |
 | PostgreSQL for all state | Existing postgres-patterns skill; auditable, queryable | — Pending |
-| Both paper and live IBKR accounts | Paper first for testing; promotes to live when validated | — Pending |
+| Paper account as pseudo-live production | Run real Bravos signals through paper account (port 4002) for 1–2 months before switching to live account. TRADING_MODE=paper permanently until operator manually upgrades. No live money until operator decides the system is proven. | — Active |
 
 ## Evolution
 
