@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 from bravos.config.settings import (
     MAX_OPEN_POSITIONS,
     MAX_ALLOCATION_PCT,
+    BYPASS_MARKET_HOURS,
     DAILY_LOSS_THRESHOLD,
     WEIGHT_PCT_PER_UNIT,
 )
@@ -83,8 +84,11 @@ class RiskGate:
 
         # Gate 1: Market hours (EXEC-03)
         if not _is_market_hours():
-            return self._log_and_return(False, "market_hours: outside 09:30-16:00 ET",
-                                        signal_id, computed, db_conn)
+            if BYPASS_MARKET_HOURS:
+                logger.warning("market_hours gate BYPASSED (BYPASS_MARKET_HOURS=true, paper mode only)")
+            else:
+                return self._log_and_return(False, "market_hours: outside 09:30-16:00 ET",
+                                            signal_id, computed, db_conn)
 
         # Gate 2: Max open positions (RISK-01) — entries only
         if signal["action_type"] in ("open", "add") and open_positions >= MAX_OPEN_POSITIONS:

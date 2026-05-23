@@ -19,6 +19,12 @@ BRAVOS_BASE_URL = "https://bravosresearch.com"
 
 # Trading
 TRADING_MODE = os.environ.get("TRADING_MODE", "paper")  # "paper" or "live"
+# Paper-only testing override: set BYPASS_MARKET_HOURS=true to skip the market-hours
+# risk gate check. Silently ignored when TRADING_MODE=live.
+BYPASS_MARKET_HOURS = (
+    TRADING_MODE == "paper"
+    and os.environ.get("BYPASS_MARKET_HOURS", "").lower() in ("1", "true", "yes")
+)
 
 # Risk controls — configurable per deployment (Phase 4)
 MAX_OPEN_POSITIONS   = int(os.environ.get("MAX_OPEN_POSITIONS", "20"))           # max concurrent open positions (RISK-01)
