@@ -39,6 +39,8 @@ def get_pending_signals(conn, since: str) -> list[dict]:
              WHERE s.confidence = 'high'
                AND s.action_type = ANY(%s)
                AND s.created_at >= %s
+               AND s.post_title != 'test'
+               AND s.ticker NOT IN ('TEST', 'BADTKR')
                AND NOT EXISTS (
                    SELECT 1 FROM orders o WHERE o.signal_id = s.id
                )
