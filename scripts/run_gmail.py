@@ -91,7 +91,12 @@ def _is_message_id_seen(conn, message_id: str) -> bool:
             "SELECT 1 FROM signals WHERE gmail_message_id = %s LIMIT 1",
             (message_id,),
         )
-        return cur.fetchone() is not None
+        result = cur.fetchone() is not None
+    # End the implicit transaction started by the SELECT so the connection
+    # stays clean for subsequent writes. Without this, any exception elsewhere
+    # on this shared connection leaves it in InFailedSqlTransaction state.
+    conn.rollback()
+    return result
 
 
 def _mark_message_id_seen(conn, message_id: str):
@@ -355,6 +360,10 @@ def main():
                     logger.exception("IMAP reconnect failed — will retry next cycle")
             except Exception:
                 logger.exception("Poll cycle error — will retry next cycle")
+                try:
+                    db_conn.rollback()
+                except Exception:
+                    pass
 
             for _ in range(POLL_INTERVAL_SECONDS):
                 if _shutdown:
