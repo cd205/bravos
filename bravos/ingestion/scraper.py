@@ -246,6 +246,15 @@ class BravosScraper:
                     )
                 )
                 row = cur.fetchone()
+                if row is None:
+                    # URL already exists — look up the existing id so execute_signal
+                    # can still be called if the signal was never ordered.
+                    cur.execute(
+                        "SELECT id FROM signals WHERE post_url = %s",
+                        (signal_data["post_url"],)
+                    )
+                    existing = cur.fetchone()
+                    row = existing
             conn.commit()
         finally:
             conn.close()
@@ -288,8 +297,9 @@ class BravosScraper:
         # Phase 4 D-12: route stored signal to the order path.
         # Confidence pre-check here is defensive redundancy — execute_signal applies
         # its own guards internally (confidence='high', valid action_type, ibapp
-        # connected, risk gate pass). Duplicate posts (signal_id is None) and
-        # low-confidence parses are NOT re-routed — RESEARCH Pitfall 4 / Pattern 8.
+        # connected, risk gate pass). Low-confidence parses are NOT re-routed.
+        # signal_id is now always set (new insert OR existing row lookup), so the
+        # None guard below only fires if the DB lookup itself failed.
         if signal_id is not None and parsed.get("confidence") == "high":
             from bravos.execution.executor import execute_signal
             import psycopg2
