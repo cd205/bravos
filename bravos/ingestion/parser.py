@@ -14,9 +14,10 @@ TICKER_RE = re.compile(r'\$([A-Z]{1,5})\b')
 # Fallback: matches bare ticker in parentheses, e.g. "(CPER)" in og:title where $ is absent.
 TICKER_PAREN_RE = re.compile(r'\(([A-Z]{1,5})\)')
 PRICE_RE = re.compile(r'at \$(\d+(?:\.\d{1,2})?)')
-# Matches "weight from X to Y", "weight of X to Y", "weight X to Y"
+# Matches "weight from X to Y", "weight of X to Y", "weight X to Y",
+# "weight allocation from X to Y", "weight position from X to Y", etc.
 WEIGHT_RE = re.compile(
-    r'weight(?:\s+(?:from|of))?\s+(\d+)\s+to\s+(\d+)',
+    r'weight(?:\s+\w+){0,3}?\s+(?:from\s+)?(\d+)\s+to\s+(\d+)',
     re.IGNORECASE,
 )
 
