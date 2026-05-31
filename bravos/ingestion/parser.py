@@ -20,6 +20,12 @@ WEIGHT_RE = re.compile(
     r'weight(?:\s+\w+){0,3}?\s+(?:from\s+)?(\d+)\s+to\s+(\d+)',
     re.IGNORECASE,
 )
+# Matches a single weight value with no from/to, e.g. "with a weight of 5"
+# Used for open signals where weight_from is implicitly 0.
+WEIGHT_SINGLE_RE = re.compile(
+    r'weight\s+of\s+(\d+)(?!\s+to)',
+    re.IGNORECASE,
+)
 
 # Action type keyword map — real observed vocabulary from post titles.
 # Order matters: longer/more specific phrases must come BEFORE shorter substrings.
@@ -144,8 +150,11 @@ def score_confidence(ticker, action_type, weight_from, weight_to) -> str:
     Returns:
         'high', 'medium', or 'low'.
     """
+    # For close signals, weight_from is irrelevant (going to 0 from any amount).
+    # Treat weight_from as known when action_type='close' and weight_to=0.
+    effective_weight_from = weight_from if not (action_type == "close" and weight_to == 0) else 0
     present = sum(
-        1 for f in (ticker, action_type, weight_from, weight_to)
+        1 for f in (ticker, action_type, effective_weight_from, weight_to)
         if f is not None
     )
     if present == 4:
@@ -225,6 +234,18 @@ def parse_signal(title: str, body: str) -> dict:
 
     # --- Action type from title ---
     title_action = infer_action_from_title(title)
+
+    # --- Weight inference for common patterns without explicit from/to ---
+    if weight_from is None and weight_to is None:
+        single_match = WEIGHT_SINGLE_RE.search(body)
+        if single_match and title_action == "open":
+            # "with a weight of 5" on an open → starting from 0
+            weight_from = 0
+            weight_to = int(single_match.group(1))
+        elif title_action == "close":
+            # "closing our position" with no weight → weight goes to 0
+            weight_from = None  # unknown starting weight; leave None
+            weight_to = 0
 
     # --- spaCy fallback when no $TICKER found ---
     if ticker is None:
