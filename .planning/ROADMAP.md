@@ -20,6 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: Paper Trading Validation** - End-to-end pipeline validation on paper account before any live orders (SC-4 deferred to post-launch)
 - [ ] **Phase 7: Notifications and Monitoring Query** - Email alerts on critical events; SQL monitoring query for trade alerts, open positions, and current state
 - [ ] **Phase 8: Live Deployment** - Systemd service hardening, production secrets, and paper-account production run (pseudo-live; live account switch deferred to post-validation)
+- [ ] **Phase 9: Bracket Orders** - Parse TP/SL from alerts, submit MKT+STP+LMT(OCA) bracket orders to IBKR; bare MKT fallback when TP/SL absent
 
 ## Phase Details
 
@@ -143,11 +144,22 @@ Plans:
 - [x] 08-02-PLAN.md — Wave 1: nightly Chrome driver restart in run_ingestion.py + scripts/run_gmail.py stub + tests/test_deployment.py
 - [ ] 08-03-PLAN.md — Wave 2: install units on bravos-vm1, live cutover (TRADING_MODE=live), observe Gateway nightly restart (operator-driven, autonomous=false)
 
+### Phase 9: Bracket Orders
+**Goal**: Every open/add signal that includes TP and SL levels (parsed from the alert body) is submitted to IBKR as a bracket order — parent MKT order with an attached STP stop loss and one LMT limit order per take-profit level in an OCA group — so positions have defined exits from the moment the entry fills
+**Depends on**: Phase 4 (executor), Phase 2 (parser)
+**Requirements**: EXEC-07
+**Success Criteria** (what must be TRUE):
+  1. The parser extracts `stop_loss` and `take_profits` from structured summary blocks (`Suggested Stop Loss (SL): $X`, `Take Profit (TP): $X, $Y, $Z`) and prose variants (`stop at $X`, `price targets of $X, $Y, $Z`) and stores them in the `signals` table
+  2. When `stop_loss` and at least one `take_profit` are present on an open/add signal, `execute_signal` submits a bracket: parent MKT (`transmit=False`), STP child for full quantity, N LMT children split equally across TP levels — all in the same OCA group — with the final child having `transmit=True`
+  3. When TP/SL are absent (or quantity < len(take_profits)), the signal falls back to a bare MKT order — no regression in existing behavior
+  4. All child orders are linked to the parent via `parent_order_id` in the `orders` table; the OCA group name is stored in `oca_group`
+**Plans**: TBD
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
-Note: Phase 3 depends on Phase 1 only (not Phase 2), and can be developed in parallel with Phase 2. Phase 7 depends on Phase 5 (not Phase 6) and can be developed in parallel with Phase 6.
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
+Note: Phase 3 depends on Phase 1 only (not Phase 2), and can be developed in parallel with Phase 2. Phase 7 depends on Phase 5 (not Phase 6) and can be developed in parallel with Phase 6. Phase 9 depends on Phase 4 and Phase 2.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -159,3 +171,4 @@ Note: Phase 3 depends on Phase 1 only (not Phase 2), and can be developed in par
 | 6. Paper Trading Validation | 3/3 | Complete (SC-4 deferred) | 2026-05-20 |
 | 7. Notifications and Monitoring Query | 0/2 | Planned | - |
 | 8. Live Deployment | 2/3 | In Progress|  |
+| 9. Bracket Orders | 0/TBD | Not started | - |
