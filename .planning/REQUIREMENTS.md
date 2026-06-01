@@ -102,7 +102,7 @@
 |---------|--------|
 | Options, futures, forex | Different margin/sizing/expiry model; equities only in v1 |
 | Limit orders | Bravos signals not price-specific; market orders give fill certainty |
-| Stop-loss / take-profit auto-placement | Conflicts with Bravos close-signal model; positions closed by explicit signal |
+| ~~Stop-loss / take-profit auto-placement~~ | ~~Conflicts with Bravos close-signal model~~ — **Superseded by Phase 9 bracket orders (EXEC-07)** |
 | Manual order placement UI | System is fully automated; manual trades handled in TWS |
 | Multi-account management | Single IBKR account per deployment |
 | Backtesting engine | Bravos's domain; export CSV for analysis |

@@ -403,7 +403,7 @@ else:
 
 **All three items are in Claude's Discretion per CONTEXT.md.** The STOP_LOSS_RE and TAKE_PROFIT_RE exact regex syntax is also Claude's Discretion (D-01, D-02 give the match patterns but not the Python regex string).
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **OCA group for STP order**
    - What we know: D-15 says `oca_group = f"TP_{parent_ibkr_id}"` and D-16 says OCA group stored on all TP child rows
