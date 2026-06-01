@@ -153,7 +153,11 @@ Plans:
   2. When `stop_loss` and at least one `take_profit` are present on an open/add signal, `execute_signal` submits a bracket: parent MKT (`transmit=False`), STP child for full quantity, N LMT children split equally across TP levels — all in the same OCA group — with the final child having `transmit=True`
   3. When TP/SL are absent (or quantity < len(take_profits)), the signal falls back to a bare MKT order — no regression in existing behavior
   4. All child orders are linked to the parent via `parent_order_id` in the `orders` table; the OCA group name is stored in `oca_group`
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 09-01-PLAN.md — Wave 0: test stubs (6 parser TP/SL stubs + 7 executor bracket stubs + _make_signal helper)
+- [ ] 09-02-PLAN.md — Wave 1: parser TP/SL regex + parse_signal keys + scraper INSERT + infra/migrate_phase9.sql
+- [ ] 09-03-PLAN.md — Wave 1: executor _submit_bracket_order + execute_signal D-10 routing + _load_signal columns
 
 ## Progress
 
@@ -171,4 +175,4 @@ Note: Phase 3 depends on Phase 1 only (not Phase 2), and can be developed in par
 | 6. Paper Trading Validation | 3/3 | Complete (SC-4 deferred) | 2026-05-20 |
 | 7. Notifications and Monitoring Query | 0/2 | Planned | - |
 | 8. Live Deployment | 2/3 | In Progress|  |
-| 9. Bracket Orders | 0/TBD | Not started | - |
+| 9. Bracket Orders | 0/3 | Planned | - |
