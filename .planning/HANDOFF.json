@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-05-23T07:50:00.617Z",
+  "timestamp": "2026-06-01T05:43:12.336Z",
   "source": "auto-postool",
   "partial": false,
   "phase": null,
@@ -194,21 +194,13 @@
     },
     {
       "status": "M",
-      "path": ".planning/PROJECT.md"
+      "path": "notebooks/trade-status-viewer.ipynb"
     },
     {
-      "status": "M",
-      "path": ".planning/ROADMAP.md"
-    },
-    {
-      "status": "M",
-      "path": ".planning/phases/08-live-deployment/08-03-PLAN.md"
-    },
-    {
-      "status": "M",
-      "path": "validation/VALIDATION-REPORT.md"
+      "status": "??",
+      "path": ".planning/phases/09-bracket-orders/09-RESEARCH.md"
     }
   ],
   "next_action": null,
-  "context_notes": "Stopped at: Phase 8 context gathered\n\nRecent commits:\naad254f feat(risk): add paper-only BYPASS_MARKET_HOURS testing override\nb2171be fix(gmail): use Unix socket IPC instead of second Chrome instance\n91749b1 feat(gmail): implement Gmail IMAP poller (INGST-V2-01)\nab486fa docs(08-02): update STATE.md and ROADMAP.md after plan 02 completion\n3e57fcb docs(08-02): complete nightly Chrome restart and Gmail stub plan"
+  "context_notes": "Stopped at: Phase 9 context gathered\n\nRecent commits:\n1b2413a docs(state): record Phase 9 context session\n2e73dfd docs(09): add Phase 9 bracket orders to roadmap and capture context\n60df961 fix(parser): infer weights for open/close signals without explicit from/to\n9af7fb4 feat(notebooks): add trade-status-viewer.ipynb\n5b310a9 fix(scraper): return existing signal_id on ON CONFLICT, fix execute_pending socket dispatch"
 }
