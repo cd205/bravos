@@ -310,6 +310,160 @@ def _submit_order(ibapp, signal_id: int, ticker: str, action: str, quantity: int
     return db_status
 
 
+def _submit_bracket_order(
+    ibapp, signal_id: int, ticker: str, action: str, quantity: int,
+    stop_loss: float, take_profits: list, db_conn,
+) -> str:
+    """
+    Submit a bracket order: parent MKT (transmit=False) + STP child +
+    N LMT take-profit children (OCA group, last has transmit=True).
+
+    All N+2 IBKR order IDs are reserved upfront (D-17).
+    All DB rows are written PENDING_SUBMISSION before any placeOrder call (D-08 pattern).
+    Returns final DB status string for the parent order.
+    """
+    n = len(take_profits)
+
+    # Input validation (T-09-06: guard against invalid bracket params)
+    if stop_loss is None or stop_loss <= 0 or n == 0 or not all(tp > 0 for tp in take_profits):
+        logger.warning(
+            "signal_id=%s invalid bracket params (stop_loss=%s, take_profits=%s) — refusing bracket",
+            signal_id, stop_loss, take_profits,
+        )
+        return "UNKNOWN"
+
+    # D-17: allocate all N+2 IDs upfront — extend existing single-order pattern
+    parent_ibkr_id = ibapp.next_order_id
+    if parent_ibkr_id is None:
+        logger.error("ibapp.next_order_id is None; cannot place bracket order")
+        return "UNKNOWN"
+    stp_ibkr_id = int(parent_ibkr_id) + 1
+    tp_ibkr_ids = [int(parent_ibkr_id) + 2 + i for i in range(n)]
+    ibapp.next_order_id = int(parent_ibkr_id) + n + 2  # reserve full block
+
+    # 1a. Write parent PENDING_SUBMISSION FIRST (D-08 pattern from _submit_order)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO orders
+              (signal_id, ibkr_order_id, ticker, action, quantity,
+               order_type, status, submitted_at)
+            VALUES (%s, %s, %s, %s, %s, 'MKT', 'PENDING_SUBMISSION', NOW())
+            RETURNING id
+            """,
+            (signal_id, parent_ibkr_id, ticker, action, quantity),
+        )
+        db_parent_order_id = cur.fetchone()[0]
+    db_conn.commit()
+
+    child_action = "SELL" if action == "BUY" else "BUY"
+    oca_group = f"TP_{parent_ibkr_id}"  # D-15
+
+    # 1b. STP child — no OCA group (STP is outside OCA group)
+    with db_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO orders
+              (signal_id, ibkr_order_id, ticker, action, quantity,
+               order_type, status, submitted_at, parent_order_id, oca_group)
+            VALUES (%s, %s, %s, %s, %s, 'STP', 'PENDING_SUBMISSION', NOW(), %s, NULL)
+            RETURNING id
+            """,
+            (signal_id, stp_ibkr_id, ticker, child_action, quantity, db_parent_order_id),
+        )
+    db_conn.commit()
+
+    # 1c. LMT TP children — each gets oca_group (D-16)
+    base_qty = quantity // n
+    for i, tp_price in enumerate(take_profits):
+        is_last = (i == n - 1)
+        tp_qty = base_qty if not is_last else quantity - (n - 1) * base_qty  # D-11 remainder rule
+        with db_conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO orders
+                  (signal_id, ibkr_order_id, ticker, action, quantity,
+                   order_type, status, submitted_at, parent_order_id, oca_group)
+                VALUES (%s, %s, %s, %s, %s, 'LMT', 'PENDING_SUBMISSION', NOW(), %s, %s)
+                """,
+                (signal_id, tp_ibkr_ids[i], ticker, child_action, tp_qty,
+                 db_parent_order_id, oca_group),
+            )
+        db_conn.commit()
+
+    # Build contract and order objects
+    contract = _build_contract(ticker)
+
+    # Parent: MKT, transmit=False (D-14)
+    parent_order = Order()
+    parent_order.action = action
+    parent_order.orderType = "MKT"
+    parent_order.totalQuantity = quantity
+    parent_order.tif = "DAY"
+    parent_order.transmit = False        # explicitly False — ibapi default is True (pitfall 2)
+    parent_order.outsideRth = False      # match _build_order pattern
+
+    # STP child: stop loss for full quantity (D-13)
+    stp_order = Order()
+    stp_order.action = child_action
+    stp_order.orderType = "STP"
+    stp_order.totalQuantity = quantity
+    stp_order.auxPrice = stop_loss       # STP trigger price uses auxPrice, NOT lmtPrice (pitfall)
+    stp_order.tif = "GTC"               # GTC — stop must persist beyond today's session
+    stp_order.parentId = int(parent_ibkr_id)  # IBKR order ID, NOT db_parent_order_id (pitfall 1)
+    stp_order.transmit = False
+
+    # TP children: LMT GTC, OCA type 2 (D-12/D-14/D-15)
+    tp_orders = []
+    for i, tp_price in enumerate(take_profits):
+        is_last = (i == n - 1)
+        tp_qty = base_qty if not is_last else quantity - (n - 1) * base_qty
+        tp_order = Order()
+        tp_order.action = child_action
+        tp_order.orderType = "LMT"
+        tp_order.totalQuantity = tp_qty
+        tp_order.lmtPrice = tp_price     # LMT uses lmtPrice, NOT auxPrice (pitfall)
+        tp_order.tif = "GTC"
+        tp_order.parentId = int(parent_ibkr_id)  # IBKR order ID
+        tp_order.ocaGroup = oca_group
+        tp_order.ocaType = 2             # REDUCE_WITH_BLOCK — D-12
+        tp_order.transmit = is_last      # D-14: only last TP fires the bracket
+        tp_orders.append(tp_order)
+
+    # 2. Register status event for parent BEFORE placeOrder (copy _submit_order pattern)
+    status_slot = {"event": threading.Event(), "status": None}
+    ibapp._order_status_events[int(parent_ibkr_id)] = status_slot
+
+    final_status_raw = None
+    try:
+        # Submission order: parent → STP → TP[0..N-2] → TP[N-1] (transmit=True fires all)
+        ibapp.placeOrder(int(parent_ibkr_id), contract, parent_order)
+        ibapp.placeOrder(stp_ibkr_id, contract, stp_order)
+        for i, tp_order in enumerate(tp_orders):
+            ibapp.placeOrder(tp_ibkr_ids[i], contract, tp_order)
+
+        # Wait on parent status (copy _submit_order pattern exactly)
+        got = status_slot["event"].wait(timeout=ORDER_STATUS_TIMEOUT)
+        if not got:
+            logger.warning(
+                "orderStatus callback timed out for bracket parent order_id=%s — assuming SUBMITTED",
+                parent_ibkr_id,
+            )
+        final_status_raw = status_slot["status"]
+    finally:
+        ibapp._order_status_events.pop(int(parent_ibkr_id), None)
+
+    # 3. Map and update parent DB row (copy _submit_order pattern)
+    db_status = _STATUS_MAP.get(final_status_raw, "SUBMITTED")
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE orders SET status = %s WHERE ibkr_order_id = %s",
+            (db_status, parent_ibkr_id),
+        )
+    db_conn.commit()
+    return db_status
+
+
 # ── DB helpers ─────────────────────────────────────────────────────────────
 
 def _load_signal(signal_id: int, db_conn) -> dict | None:
