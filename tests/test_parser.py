@@ -109,3 +109,75 @@ def test_spacy_fallback():
     )
     # No $TICKER in title — spaCy should attempt ORG extraction
     assert result["parse_method"] == "spacy"
+
+
+# Wave 0 additions — Phase 9 TP/SL extraction
+
+@pytest.mark.skip(reason="implemented in 09-02-PLAN")
+def test_extract_stop_loss_structured():
+    from bravos.ingestion.parser import STOP_LOSS_RE
+    body = "Suggested Stop Loss (SL): $257"
+    m = STOP_LOSS_RE.search(body)
+    assert m is not None
+    raw = m.group(1) or m.group(2)
+    assert float(raw) == 257.0
+
+
+@pytest.mark.skip(reason="implemented in 09-02-PLAN")
+def test_extract_stop_loss_prose():
+    from bravos.ingestion.parser import STOP_LOSS_RE
+    body = "with a weight of 5, a stop at $195, and price targets of $250, $275, and $300"
+    m = STOP_LOSS_RE.search(body)
+    assert m is not None
+    raw = m.group(1) or m.group(2)
+    assert float(raw) == 195.0
+
+
+@pytest.mark.skip(reason="implemented in 09-02-PLAN")
+def test_extract_take_profits_structured():
+    from bravos.ingestion.parser import TAKE_PROFIT_RE, PRICE_IN_LIST_RE
+    body = "Take Profit (TP): $320, $350, and $370"
+    m = TAKE_PROFIT_RE.search(body)
+    assert m is not None
+    tp_string = m.group(1) or m.group(2)
+    prices = [float(p) for p in PRICE_IN_LIST_RE.findall(tp_string)]
+    assert prices == [320.0, 350.0, 370.0]
+
+
+@pytest.mark.skip(reason="implemented in 09-02-PLAN")
+def test_extract_take_profits_prose():
+    from bravos.ingestion.parser import TAKE_PROFIT_RE, PRICE_IN_LIST_RE
+    body = "with a weight of 5, a stop at $195, and price targets of $250, $275, and $300"
+    m = TAKE_PROFIT_RE.search(body)
+    assert m is not None
+    tp_string = m.group(1) or m.group(2)
+    prices = [float(p) for p in PRICE_IN_LIST_RE.findall(tp_string)]
+    assert prices == [250.0, 275.0, 300.0]
+
+
+@pytest.mark.skip(reason="implemented in 09-02-PLAN")
+def test_parse_signal_returns_tp_sl():
+    from bravos.ingestion.parser import parse_signal
+    body = (
+        "We are initiating a long in $AAPL at $300. "
+        "Weight allocation from 0 to 5. "
+        "Take Profit (TP): $320, $350, and $370\n"
+        "Suggested Stop Loss (SL): $257"
+    )
+    result = parse_signal(
+        title="Initiating Long on Apple ($AAPL) | Technical Strength",
+        body=body,
+    )
+    assert result["stop_loss"] == 257.0
+    assert result["take_profits"] == [320.0, 350.0, 370.0]
+
+
+@pytest.mark.skip(reason="implemented in 09-02-PLAN")
+def test_parse_signal_no_tp_sl():
+    from bravos.ingestion.parser import parse_signal
+    result = parse_signal(
+        title="Initiating Long on EMCOR Group, Inc. ($EME) | Breakout",
+        body="We are initiating a long position in EMCOR Group at $42.50. Weight from 0 to 5."
+    )
+    assert result["stop_loss"] is None
+    assert result["take_profits"] == []

@@ -318,3 +318,246 @@ def test_order_status_rejected(db_connection):
     with db_connection.cursor() as cur:
         cur.execute("SELECT status FROM orders WHERE ibkr_order_id=%s", (1002,))
         assert cur.fetchone()[0] == "REJECTED"
+
+
+# Wave 0 additions — Phase 9 bracket order tests
+
+def _make_signal(db_conn, ticker="AAPL", action_type="open",
+                  weight_from=0, weight_to=5, stop_loss=257.0,
+                  take_profits=None):
+    """Helper: insert a synthetic signal row with Phase 9 fields and return its id."""
+    import os
+    import psycopg2.extras
+    if take_profits is None:
+        take_profits = [320.0, 350.0, 370.0]
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO signals "
+            "  (post_url, post_title, ticker, action_type, weight_from, weight_to, "
+            "   confidence, stop_loss, take_profits) "
+            "VALUES (%s, %s, %s, %s, %s, %s, 'high', %s, %s) RETURNING id",
+            (f"http://test/{os.urandom(4).hex()}", "test", ticker, action_type,
+             weight_from, weight_to, stop_loss, take_profits),
+        )
+        sid = cur.fetchone()[0]
+    db_conn.commit()
+    return sid
+
+
+@pytest.mark.skip(reason="implemented in 09-03-PLAN")
+def test_bracket_db_writes(db_connection):
+    """_submit_bracket_order writes N+2 orders rows (1 parent + 1 STP + N TP) to DB."""
+    from bravos.execution.executor import _submit_bracket_order
+
+    signal_id = _make_signal(db_connection, take_profits=[320.0, 350.0, 370.0])
+    n = 3  # len(take_profits)
+
+    mock_ibapp = MagicMock()
+    start_id = int.from_bytes(os.urandom(3), "big") + 10000
+    mock_ibapp.next_order_id = start_id
+    mock_ibapp._order_status_events = {}
+
+    def fire_parent_callback(order_id, *args, **kwargs):
+        if order_id == start_id:
+            slot = mock_ibapp._order_status_events.get(order_id)
+            if slot:
+                slot["status"] = "Submitted"
+                slot["event"].set()
+    mock_ibapp.placeOrder = MagicMock(side_effect=fire_parent_callback)
+
+    _submit_bracket_order(
+        mock_ibapp, signal_id, "AAPL", "BUY", 30,
+        257.0, [320.0, 350.0, 370.0], db_connection,
+    )
+
+    with db_connection.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM orders WHERE signal_id=%s", (signal_id,))
+        count = cur.fetchone()[0]
+    assert count == n + 2  # 1 parent + 1 STP + 3 TP
+
+
+@pytest.mark.skip(reason="implemented in 09-03-PLAN")
+def test_bracket_transmit_sequence(db_connection):
+    """parent transmit=False, STP transmit=False, last TP transmit=True (D-14)."""
+    from bravos.execution.executor import _submit_bracket_order
+
+    signal_id = _make_signal(db_connection, take_profits=[320.0, 350.0])
+    mock_ibapp = MagicMock()
+    start_id = int.from_bytes(os.urandom(3), "big") + 20000
+    mock_ibapp.next_order_id = start_id
+    mock_ibapp._order_status_events = {}
+
+    captured_orders = []
+
+    def capture_order(order_id, contract, order, *args, **kwargs):
+        captured_orders.append((order_id, order.transmit))
+        if order_id == start_id:
+            slot = mock_ibapp._order_status_events.get(order_id)
+            if slot:
+                slot["status"] = "Submitted"
+                slot["event"].set()
+    mock_ibapp.placeOrder = MagicMock(side_effect=capture_order)
+
+    _submit_bracket_order(
+        mock_ibapp, signal_id, "AAPL", "BUY", 20,
+        257.0, [320.0, 350.0], db_connection,
+    )
+
+    # parent: transmit=False; STP: transmit=False; TP[0]: transmit=False; TP[1]: transmit=True
+    assert captured_orders[0] == (start_id, False)          # parent
+    assert captured_orders[1] == (start_id + 1, False)      # STP
+    assert captured_orders[2][1] is False                   # TP[0]
+    assert captured_orders[3][1] is True                    # TP[1] — last
+
+
+@pytest.mark.skip(reason="implemented in 09-03-PLAN")
+def test_bracket_parent_id(db_connection):
+    """Child orders have parentId equal to parent IBKR order ID, NOT the DB row id (pitfall 1)."""
+    from bravos.execution.executor import _submit_bracket_order
+
+    signal_id = _make_signal(db_connection, take_profits=[320.0])
+    mock_ibapp = MagicMock()
+    start_id = int.from_bytes(os.urandom(3), "big") + 30000
+    mock_ibapp.next_order_id = start_id
+    mock_ibapp._order_status_events = {}
+
+    child_parent_ids = []
+
+    def capture_parent_id(order_id, contract, order, *args, **kwargs):
+        if hasattr(order, "parentId") and order.parentId != 0:
+            child_parent_ids.append(order.parentId)
+        if order_id == start_id:
+            slot = mock_ibapp._order_status_events.get(order_id)
+            if slot:
+                slot["status"] = "Submitted"
+                slot["event"].set()
+    mock_ibapp.placeOrder = MagicMock(side_effect=capture_parent_id)
+
+    _submit_bracket_order(
+        mock_ibapp, signal_id, "AAPL", "BUY", 10,
+        257.0, [320.0], db_connection,
+    )
+
+    # All children must reference the IBKR parent_id, which is start_id
+    assert all(pid == start_id for pid in child_parent_ids)
+    assert len(child_parent_ids) == 2  # STP + 1 TP
+
+
+@pytest.mark.skip(reason="implemented in 09-03-PLAN")
+def test_bracket_oca_group(db_connection):
+    """All TP child orders have ocaGroup == f'TP_{parent_ibkr_id}' (D-15)."""
+    from bravos.execution.executor import _submit_bracket_order
+
+    signal_id = _make_signal(db_connection, take_profits=[320.0, 350.0])
+    mock_ibapp = MagicMock()
+    start_id = int.from_bytes(os.urandom(3), "big") + 40000
+    mock_ibapp.next_order_id = start_id
+    mock_ibapp._order_status_events = {}
+
+    oca_groups_seen = []
+
+    def capture_oca(order_id, contract, order, *args, **kwargs):
+        if hasattr(order, "ocaGroup") and order.ocaGroup:
+            oca_groups_seen.append(order.ocaGroup)
+        if order_id == start_id:
+            slot = mock_ibapp._order_status_events.get(order_id)
+            if slot:
+                slot["status"] = "Submitted"
+                slot["event"].set()
+    mock_ibapp.placeOrder = MagicMock(side_effect=capture_oca)
+
+    _submit_bracket_order(
+        mock_ibapp, signal_id, "AAPL", "BUY", 20,
+        257.0, [320.0, 350.0], db_connection,
+    )
+
+    expected_group = f"TP_{start_id}"
+    assert all(g == expected_group for g in oca_groups_seen)
+    assert len(oca_groups_seen) == 2  # 2 TP children only; STP has no OCA group
+
+
+@pytest.mark.skip(reason="implemented in 09-03-PLAN")
+def test_bracket_quantity_split(db_connection):
+    """Equal quantity split with remainder to last TP (D-11): 10 shares, 3 TPs → 3+3+4."""
+    from bravos.execution.executor import _submit_bracket_order
+
+    signal_id = _make_signal(db_connection, take_profits=[320.0, 350.0, 370.0])
+    mock_ibapp = MagicMock()
+    start_id = int.from_bytes(os.urandom(3), "big") + 50000
+    mock_ibapp.next_order_id = start_id
+    mock_ibapp._order_status_events = {}
+
+    tp_quantities = []
+
+    def capture_tp_qty(order_id, contract, order, *args, **kwargs):
+        # TP orders: LMT type, order_id in [start_id+2, start_id+3, start_id+4]
+        if order_id in [start_id + 2, start_id + 3, start_id + 4]:
+            tp_quantities.append(order.totalQuantity)
+        if order_id == start_id:
+            slot = mock_ibapp._order_status_events.get(order_id)
+            if slot:
+                slot["status"] = "Submitted"
+                slot["event"].set()
+    mock_ibapp.placeOrder = MagicMock(side_effect=capture_tp_qty)
+
+    _submit_bracket_order(
+        mock_ibapp, signal_id, "AAPL", "BUY", 10,
+        257.0, [320.0, 350.0, 370.0], db_connection,
+    )
+
+    assert tp_quantities == [3, 3, 4]  # 10//3=3, 10//3=3, 10-2*3=4
+
+
+@pytest.mark.skip(reason="implemented in 09-03-PLAN")
+def test_bracket_fallback_no_tpsl(db_connection):
+    """No TP/SL data → execute_signal falls back to bare MKT _submit_order path (D-19)."""
+    from bravos.execution.executor import execute_signal
+    from unittest.mock import patch
+
+    signal_id = _make_signal(db_connection, stop_loss=None, take_profits=[])
+
+    mock_ibapp = MagicMock()
+    mock_ibapp.is_connected.return_value = True
+    mock_ibapp.next_order_id = int.from_bytes(os.urandom(3), "big") + 60000
+    mock_ibapp._order_status_events = {}
+    mock_ibapp._account_summary = {"NetLiquidation": "100000"}
+
+    with patch("bravos.execution.executor._submit_bracket_order") as mock_bracket, \
+         patch("bravos.execution.executor._submit_order", return_value="SUBMITTED") as mock_bare, \
+         patch("bravos.execution.executor._fetch_price", return_value=300.0), \
+         patch("bravos.risk.gate.RiskGate.check", return_value=(True, "pass")), \
+         patch("bravos.broker.connection.ibapp", mock_ibapp):
+        execute_signal(signal_id, db_connection)
+
+    mock_bracket.assert_not_called()
+    mock_bare.assert_called_once()
+
+
+@pytest.mark.skip(reason="implemented in 09-03-PLAN")
+def test_bracket_fallback_qty_too_small(db_connection):
+    """quantity < len(take_profits) → falls back to bare MKT with a warning logged (D-20)."""
+    from bravos.execution.executor import execute_signal
+    from unittest.mock import patch
+    import logging
+
+    # 3 TPs but NLV so tiny that quantity will be 0 or 1 (less than 3)
+    signal_id = _make_signal(db_connection, weight_from=0, weight_to=1,
+                              take_profits=[320.0, 350.0, 370.0])
+
+    mock_ibapp = MagicMock()
+    mock_ibapp.is_connected.return_value = True
+    mock_ibapp.next_order_id = int.from_bytes(os.urandom(3), "big") + 70000
+    mock_ibapp._order_status_events = {}
+    # Very small NLV → quantity < 3
+    mock_ibapp._account_summary = {"NetLiquidation": "100"}
+
+    with patch("bravos.execution.executor._submit_bracket_order") as mock_bracket, \
+         patch("bravos.execution.executor._submit_order", return_value="SUBMITTED") as mock_bare, \
+         patch("bravos.execution.executor._fetch_price", return_value=300.0), \
+         patch("bravos.risk.gate.RiskGate.check", return_value=(True, "pass")), \
+         patch("bravos.broker.connection.ibapp", mock_ibapp):
+        execute_signal(signal_id, db_connection)
+
+    mock_bracket.assert_not_called()
+    # _submit_order is either called (qty>=1) or not called (qty=0, skipped before submission)
+    # Either way, _submit_bracket_order must NOT have been called
