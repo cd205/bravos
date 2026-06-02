@@ -27,6 +27,29 @@ WEIGHT_SINGLE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Phase 9: Stop loss and take profit extraction (body only, D-01/D-02/D-04)
+# Structured: "Suggested Stop Loss (SL): $257"
+# Prose:      "stop at $195", "a stop of $195"
+STOP_LOSS_RE = re.compile(
+    r'(?:'
+    r'Suggested Stop Loss.*?\$(\d+(?:\.\d{1,2})?)'
+    r'|stop\s+(?:at|of)\s+\$(\d+(?:\.\d{1,2})?)'
+    r')',
+    re.IGNORECASE,
+)
+
+# Structured: "Take Profit (TP): $320, $350, and $370"
+# Prose:      "price targets of $250, $275, and $300"
+TAKE_PROFIT_RE = re.compile(
+    r'(?:'
+    r'Take Profit.*?:\s*((?:\$\d+(?:\.\d{1,2})?[\s,and]*)+)'
+    r'|price targets?\s+of\s+((?:\$\d+(?:\.\d{1,2})?[\s,and]*)+)'
+    r')',
+    re.IGNORECASE,
+)
+# Helper: extract individual dollar amounts from a TP match group string
+PRICE_IN_LIST_RE = re.compile(r'\$(\d+(?:\.\d{1,2})?)')
+
 # Action type keyword map — real observed vocabulary from post titles.
 # Order matters: longer/more specific phrases must come BEFORE shorter substrings.
 # "booking partial profits" must precede "booking profits" to avoid false partial match.
@@ -190,6 +213,8 @@ def parse_signal(title: str, body: str) -> dict:
             reference_price (float | None)
             confidence (str)
             parse_method (str)  — 'regex' or 'spacy'
+            stop_loss (float | None)   — Phase 9: extracted from body (D-01/D-03)
+            take_profits (list[float]) — Phase 9: extracted from body, always a list (D-02/D-03)
     """
     parse_method = "regex"
 
@@ -208,6 +233,9 @@ def parse_signal(title: str, body: str) -> dict:
             "reference_price": None,
             "confidence": "low",
             "parse_method": parse_method,
+            # Phase 9 additions (D-03) — always present on all return paths
+            "stop_loss": None,
+            "take_profits": [],
         }
 
     ticker = all_tickers[0] if all_tickers else None
@@ -264,6 +292,28 @@ def parse_signal(title: str, body: str) -> dict:
             # We cannot resolve them to tickers here, but we record that
             # NLP was attempted so downstream can prompt for manual review.
 
+    # --- Stop loss (body only, first match, D-01/D-04) ---
+    sl_match = STOP_LOSS_RE.search(body)
+    if sl_match:
+        raw = sl_match.group(1) or sl_match.group(2)
+        try:
+            stop_loss = float(raw)
+        except (TypeError, ValueError):
+            stop_loss = None
+    else:
+        stop_loss = None
+
+    # --- Take profits (body only, list of floats, D-02/D-04) ---
+    tp_match = TAKE_PROFIT_RE.search(body)
+    if tp_match:
+        tp_string = tp_match.group(1) or tp_match.group(2)
+        try:
+            take_profits = [float(p) for p in PRICE_IN_LIST_RE.findall(tp_string)]
+        except (TypeError, ValueError):
+            take_profits = []
+    else:
+        take_profits = []
+
     # --- Cross-check action type vs weight direction ---
     action_type = cross_check_action(title_action, weight_from, weight_to)
 
@@ -278,4 +328,7 @@ def parse_signal(title: str, body: str) -> dict:
         "reference_price": reference_price,
         "confidence": confidence,
         "parse_method": parse_method,
+        # Phase 9 additions (D-03)
+        "stop_loss": stop_loss,        # float | None
+        "take_profits": take_profits,  # list[float], always a list (empty if not found)
     }

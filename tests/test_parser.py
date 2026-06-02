@@ -113,7 +113,6 @@ def test_spacy_fallback():
 
 # Wave 0 additions — Phase 9 TP/SL extraction
 
-@pytest.mark.skip(reason="implemented in 09-02-PLAN")
 def test_extract_stop_loss_structured():
     from bravos.ingestion.parser import STOP_LOSS_RE
     body = "Suggested Stop Loss (SL): $257"
@@ -123,7 +122,6 @@ def test_extract_stop_loss_structured():
     assert float(raw) == 257.0
 
 
-@pytest.mark.skip(reason="implemented in 09-02-PLAN")
 def test_extract_stop_loss_prose():
     from bravos.ingestion.parser import STOP_LOSS_RE
     body = "with a weight of 5, a stop at $195, and price targets of $250, $275, and $300"
@@ -133,7 +131,6 @@ def test_extract_stop_loss_prose():
     assert float(raw) == 195.0
 
 
-@pytest.mark.skip(reason="implemented in 09-02-PLAN")
 def test_extract_take_profits_structured():
     from bravos.ingestion.parser import TAKE_PROFIT_RE, PRICE_IN_LIST_RE
     body = "Take Profit (TP): $320, $350, and $370"
@@ -144,7 +141,6 @@ def test_extract_take_profits_structured():
     assert prices == [320.0, 350.0, 370.0]
 
 
-@pytest.mark.skip(reason="implemented in 09-02-PLAN")
 def test_extract_take_profits_prose():
     from bravos.ingestion.parser import TAKE_PROFIT_RE, PRICE_IN_LIST_RE
     body = "with a weight of 5, a stop at $195, and price targets of $250, $275, and $300"
@@ -155,7 +151,6 @@ def test_extract_take_profits_prose():
     assert prices == [250.0, 275.0, 300.0]
 
 
-@pytest.mark.skip(reason="implemented in 09-02-PLAN")
 def test_parse_signal_returns_tp_sl():
     from bravos.ingestion.parser import parse_signal
     body = (
@@ -172,7 +167,6 @@ def test_parse_signal_returns_tp_sl():
     assert result["take_profits"] == [320.0, 350.0, 370.0]
 
 
-@pytest.mark.skip(reason="implemented in 09-02-PLAN")
 def test_parse_signal_no_tp_sl():
     from bravos.ingestion.parser import parse_signal
     result = parse_signal(
