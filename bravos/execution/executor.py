@@ -317,7 +317,8 @@ def _load_signal(signal_id: int, db_conn) -> dict | None:
     with db_conn.cursor() as cur:
         cur.execute(
             "SELECT ticker, action_type, weight_from, weight_to, "
-            "reference_price, confidence FROM signals WHERE id = %s",
+            "reference_price, confidence, stop_loss, take_profits "
+            "FROM signals WHERE id = %s",
             (signal_id,),
         )
         row = cur.fetchone()
@@ -332,4 +333,6 @@ def _load_signal(signal_id: int, db_conn) -> dict | None:
         "weight_to": row[3],
         "reference_price": float(row[4]) if row[4] is not None else None,
         "confidence": row[5],
+        "stop_loss": float(row[6]) if row[6] is not None else None,   # Phase 9 D-03
+        "take_profits": list(row[7]) if row[7] is not None else [],   # Phase 9 D-03; psycopg2 returns list
     }
