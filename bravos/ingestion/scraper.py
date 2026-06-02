@@ -232,8 +232,8 @@ class BravosScraper:
                     INSERT INTO signals
                       (post_url, post_title, raw_html, ticker, action_type,
                        weight_from, weight_to, reference_price, confidence,
-                       parse_method, scraped_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                       parse_method, scraped_at, stop_loss, take_profits)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)
                     ON CONFLICT (post_url) DO NOTHING
                     RETURNING id
                     """,
@@ -243,6 +243,8 @@ class BravosScraper:
                         signal_data.get("action_type"), signal_data.get("weight_from"),
                         signal_data.get("weight_to"), signal_data.get("reference_price"),
                         signal_data.get("confidence"), signal_data.get("parse_method"),
+                        signal_data.get("stop_loss"),              # float | None -> NUMERIC(10,2)
+                        signal_data.get("take_profits", []),       # list[float] -> NUMERIC(10,2)[]; use [] not None (pitfall 3)
                     )
                 )
                 row = cur.fetchone()
