@@ -155,9 +155,9 @@ Plans:
   4. All child orders are linked to the parent via `parent_order_id` in the `orders` table; the OCA group name is stored in `oca_group`
 **Plans**: 3 plans
 Plans:
-- [ ] 09-01-PLAN.md — Wave 0: test stubs (6 parser TP/SL stubs + 7 executor bracket stubs + _make_signal helper)
-- [ ] 09-02-PLAN.md — Wave 1: parser TP/SL regex + parse_signal keys + scraper INSERT + infra/migrate_phase9.sql
-- [ ] 09-03-PLAN.md — Wave 1: executor _submit_bracket_order + execute_signal D-10 routing + _load_signal columns
+- [x] 09-01-PLAN.md — Wave 0: test stubs (6 parser TP/SL stubs + 7 executor bracket stubs + _make_signal helper)
+- [x] 09-02-PLAN.md — Wave 1: parser TP/SL regex + parse_signal keys + scraper INSERT + infra/migrate_phase9.sql
+- [x] 09-03-PLAN.md — Wave 1: executor _submit_bracket_order + execute_signal D-10 routing + _load_signal columns
 
 ## Progress
 
