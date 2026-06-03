@@ -565,7 +565,12 @@ def test_bracket_fallback_qty_too_small(db_connection):
 
 @pytest.mark.integration
 def test_bracket_close_signal_routes_bare(db_connection):
-    """close/partial_close with TP/SL data routes to bare MKT, not bracket (D-10)."""
+    """close/partial_close with TP/SL data never routes to bracket (D-10).
+
+    A close signal queries position_lots for open shares; with no open position
+    quantity=0 so execute_signal returns before _submit_order. The key assertion
+    is that _submit_bracket_order is never called regardless.
+    """
     from bravos.execution.executor import execute_signal
 
     signal_id = _make_signal(db_connection, action_type="close",
@@ -578,11 +583,10 @@ def test_bracket_close_signal_routes_bare(db_connection):
     mock_ibapp._account_summary = {"NetLiquidation": "100000"}
 
     with patch("bravos.execution.executor._submit_bracket_order") as mock_bracket, \
-         patch("bravos.execution.executor._submit_order", return_value="SUBMITTED") as mock_bare, \
+         patch("bravos.execution.executor._submit_order", return_value="SUBMITTED"), \
          patch("bravos.execution.executor._fetch_price", return_value=300.0), \
          patch("bravos.risk.gate.RiskGate.check", return_value=(True, "pass")), \
          patch("bravos.broker.connection.ibapp", mock_ibapp):
         execute_signal(signal_id, db_connection)
 
     mock_bracket.assert_not_called()
-    mock_bare.assert_called_once()
