@@ -140,7 +140,8 @@ def execute_signal(signal_id: int, db_conn) -> None:
     stop_loss = signal.get("stop_loss")
     take_profits = signal.get("take_profits", [])
     use_bracket = (
-        stop_loss is not None
+        action_type in ("open", "add")     # D-10: bracket only on entry signals
+        and stop_loss is not None
         and stop_loss > 0
         and len(take_profits) > 0
         and quantity >= len(take_profits)  # D-20: fall back if too few shares to split

@@ -561,3 +561,28 @@ def test_bracket_fallback_qty_too_small(db_connection):
     mock_bracket.assert_not_called()
     # _submit_order is either called (qty>=1) or not called (qty=0, skipped before submission)
     # Either way, _submit_bracket_order must NOT have been called
+
+
+@pytest.mark.integration
+def test_bracket_close_signal_routes_bare(db_connection):
+    """close/partial_close with TP/SL data routes to bare MKT, not bracket (D-10)."""
+    from bravos.execution.executor import execute_signal
+
+    signal_id = _make_signal(db_connection, action_type="close",
+                              stop_loss=257.0, take_profits=[320.0, 350.0])
+
+    mock_ibapp = MagicMock()
+    mock_ibapp.is_connected.return_value = True
+    mock_ibapp.next_order_id = int.from_bytes(os.urandom(3), "big") + 80000
+    mock_ibapp._order_status_events = {}
+    mock_ibapp._account_summary = {"NetLiquidation": "100000"}
+
+    with patch("bravos.execution.executor._submit_bracket_order") as mock_bracket, \
+         patch("bravos.execution.executor._submit_order", return_value="SUBMITTED") as mock_bare, \
+         patch("bravos.execution.executor._fetch_price", return_value=300.0), \
+         patch("bravos.risk.gate.RiskGate.check", return_value=(True, "pass")), \
+         patch("bravos.broker.connection.ibapp", mock_ibapp):
+        execute_signal(signal_id, db_connection)
+
+    mock_bracket.assert_not_called()
+    mock_bare.assert_called_once()
