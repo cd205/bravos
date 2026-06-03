@@ -29,11 +29,12 @@ WEIGHT_SINGLE_RE = re.compile(
 
 # Phase 9: Stop loss and take profit extraction (body only, D-01/D-02/D-04)
 # Structured: "Suggested Stop Loss (SL): $257"
-# Prose:      "stop at $195", "a stop of $195"
+# Prose:      "stop at $195", "a stop of $195", "stop loss at $195", "stop loss of $195"
+# CR-02: (?:\s+loss)? makes "loss" optional so both "stop at" and "stop loss at" match.
 STOP_LOSS_RE = re.compile(
     r'(?:'
     r'Suggested Stop Loss.*?\$(\d+(?:\.\d{1,2})?)'
-    r'|stop\s+(?:at|of)\s+\$(\d+(?:\.\d{1,2})?)'
+    r'|stop(?:\s+loss)?\s+(?:at|of)\s+\$(\d+(?:\.\d{1,2})?)'
     r')',
     re.IGNORECASE,
 )
