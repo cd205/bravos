@@ -496,6 +496,20 @@ def _submit_bracket_order(
             (db_status, parent_ibkr_id),
         )
     db_conn.commit()
+
+    # WR-02: Update child (STP + TP) rows from PENDING_SUBMISSION to SUBMITTED.
+    # Full per-child callback tracking is deferred, but leaving children in
+    # PENDING_SUBMISSION permanently causes monitoring queries to misrepresent
+    # the order lifecycle. Bulk-update all children after the parent resolves.
+    child_ibkr_ids = [stp_ibkr_id] + tp_ibkr_ids
+    with db_conn.cursor() as cur:
+        cur.execute(
+            "UPDATE orders SET status = 'SUBMITTED' WHERE ibkr_order_id = ANY(%s)"
+            " AND status = 'PENDING_SUBMISSION'",
+            (child_ibkr_ids,),
+        )
+    db_conn.commit()
+
     return db_status
 
 
