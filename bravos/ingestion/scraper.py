@@ -207,14 +207,17 @@ class BravosScraper:
             "text": body_el.text,
         }
 
-    def _store_signal(self, signal_data: dict) -> int | None:
+    def _store_signal(self, signal_data: dict) -> tuple[int | None, bool]:
         """Insert signal into DB. ON CONFLICT DO NOTHING for dedup (per D-05, AUDIT-06).
 
-        Returns the inserted signal id (int) when a new row was created, or None
-        when the post_url already existed (ON CONFLICT DO NOTHING suppresses the row,
-        and RETURNING id therefore returns no rows — see RESEARCH Pitfall 4).
-        Phase 4 D-12: process_alert uses the return value to gate the call to
-        execute_signal so duplicate posts do not re-trigger the order path.
+        Returns (signal_id, is_new):
+          - is_new=True when a new row was inserted (first time this URL is seen).
+          - is_new=False when the post_url already existed (duplicate); signal_id is
+            the existing row's id so callers can inspect history, but execute_signal
+            must NOT be re-triggered (CR-01: duplicate order guard).
+
+        RETURNING id returns no rows on conflict (see RESEARCH Pitfall 4), so we look
+        up the existing id in that case and return is_new=False.
         """
         import psycopg2
         password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
@@ -249,18 +252,20 @@ class BravosScraper:
                 )
                 row = cur.fetchone()
                 if row is None:
-                    # URL already exists — look up the existing id so execute_signal
-                    # can still be called if the signal was never ordered.
+                    # URL already exists — look up the existing id for logging.
+                    # is_new=False: process_alert must NOT call execute_signal again
+                    # (CR-01: prevents duplicate orders on crash-recovery / scheduler overlap).
                     cur.execute(
                         "SELECT id FROM signals WHERE post_url = %s",
                         (signal_data["post_url"],)
                     )
                     existing = cur.fetchone()
-                    row = existing
+                    conn.commit()
+                    return (existing[0] if existing else None, False)
             conn.commit()
         finally:
             conn.close()
-        return row[0] if row else None
+        return (row[0] if row else None, True)
 
     @catch_cycle_exceptions
     def process_alert(self, url: str):
@@ -282,10 +287,10 @@ class BravosScraper:
             "raw_html": content["raw_html"],
             **parsed,
         }
-        signal_id = self._store_signal(signal_data)
-        logger.info("Processed: %s -> ticker=%s action=%s confidence=%s signal_id=%s",
+        signal_id, is_new = self._store_signal(signal_data)
+        logger.info("Processed: %s -> ticker=%s action=%s confidence=%s signal_id=%s is_new=%s",
                      content["title"][:60], parsed.get("ticker"),
-                     parsed.get("action_type"), parsed.get("confidence"), signal_id)
+                     parsed.get("action_type"), parsed.get("confidence"), signal_id, is_new)
 
         # Phase 7: parse failure spike tracking (D-03, NOTF-02). Duplicates
         # (signal_id is None) are not counted — only genuinely parsed signals.
@@ -297,12 +302,12 @@ class BravosScraper:
                 logger.warning("record_parse_outcome failed — continuing", exc_info=True)
 
         # Phase 4 D-12: route stored signal to the order path.
-        # Confidence pre-check here is defensive redundancy — execute_signal applies
-        # its own guards internally (confidence='high', valid action_type, ibapp
-        # connected, risk gate pass). Low-confidence parses are NOT re-routed.
-        # signal_id is now always set (new insert OR existing row lookup), so the
-        # None guard below only fires if the DB lookup itself failed.
-        if signal_id is not None and parsed.get("confidence") == "high":
+        # CR-01: Only route NEW inserts to execute_signal. is_new=False means this
+        # URL was already in the DB (duplicate from crash-recovery, scheduler overlap,
+        # or manual retry). Re-routing a duplicate would place a second order for the
+        # same signal — no uniqueness constraint on (signal_id) in orders table prevents it.
+        # signal_id may still be None if the DB lookup itself failed (is_new=False case).
+        if is_new and signal_id is not None and parsed.get("confidence") == "high":
             from bravos.execution.executor import execute_signal
             import psycopg2
             password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
