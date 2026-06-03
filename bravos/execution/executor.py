@@ -388,17 +388,21 @@ def _submit_bracket_order(
     child_action = "SELL" if action == "BUY" else "BUY"
     oca_group = f"TP_{parent_ibkr_id}"  # D-15
 
-    # 1b. STP child — no OCA group (STP is outside OCA group)
+    # 1b. STP child — included in the same OCA group as TPs (WR-01).
+    # OCA type 2 (REDUCE_WITH_BLOCK) causes IBKR to reduce the STP quantity
+    # proportionally as TP orders fill, preventing an oversell if all TPs fill
+    # before the stop triggers.
     with db_conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO orders
               (signal_id, ibkr_order_id, ticker, action, quantity,
                order_type, status, submitted_at, parent_order_id, oca_group)
-            VALUES (%s, %s, %s, %s, %s, 'STP', 'PENDING_SUBMISSION', NOW(), %s, NULL)
+            VALUES (%s, %s, %s, %s, %s, 'STP', 'PENDING_SUBMISSION', NOW(), %s, %s)
             RETURNING id
             """,
-            (signal_id, stp_ibkr_id, ticker, child_action, quantity, db_parent_order_id),
+            (signal_id, stp_ibkr_id, ticker, child_action, quantity, db_parent_order_id,
+             oca_group),
         )
     db_conn.commit()
 
@@ -432,7 +436,7 @@ def _submit_bracket_order(
     parent_order.transmit = False        # explicitly False — ibapi default is True (pitfall 2)
     parent_order.outsideRth = False      # match _build_order pattern
 
-    # STP child: stop loss for full quantity (D-13)
+    # STP child: stop loss, OCA type 2 so quantity reduces as TPs fill (WR-01 / D-13)
     stp_order = Order()
     stp_order.action = child_action
     stp_order.orderType = "STP"
@@ -440,6 +444,8 @@ def _submit_bracket_order(
     stp_order.auxPrice = stop_loss       # STP trigger price uses auxPrice, NOT lmtPrice (pitfall)
     stp_order.tif = "GTC"               # GTC — stop must persist beyond today's session
     stp_order.parentId = int(parent_ibkr_id)  # IBKR order ID, NOT db_parent_order_id (pitfall 1)
+    stp_order.ocaGroup = oca_group       # same OCA group as TPs (WR-01)
+    stp_order.ocaType = 2                # REDUCE_WITH_BLOCK — STP qty reduces as TPs fill
     stp_order.transmit = False
 
     # TP children: LMT GTC, OCA type 2 (D-12/D-14/D-15)
