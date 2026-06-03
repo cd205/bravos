@@ -151,6 +151,15 @@ def execute_signal(signal_id: int, db_conn) -> None:
             ibapp, signal_id, ticker, ibkr_action, quantity,
             stop_loss, take_profits, db_conn,
         )
+        if final_status == "UNKNOWN":
+            # CR-03: _submit_bracket_order refused malformed bracket params
+            # (e.g. zero/negative TP price). Fall back to a bare MKT order so
+            # the entry position is not silently dropped.
+            logger.warning(
+                "signal_id=%s bracket refused (UNKNOWN) — falling back to bare MKT order",
+                signal_id,
+            )
+            final_status = _submit_order(ibapp, signal_id, ticker, ibkr_action, quantity, db_conn)
     else:
         if stop_loss is not None and quantity < len(take_profits):
             logger.warning(
