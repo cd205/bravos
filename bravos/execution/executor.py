@@ -370,8 +370,16 @@ def _submit_bracket_order(
     tp_ibkr_ids = [int(parent_ibkr_id) + 2 + i for i in range(n)]
     ibapp.next_order_id = int(parent_ibkr_id) + n + 2  # reserve full block
 
-    # 1a. Write parent PENDING_SUBMISSION FIRST (D-08 pattern from _submit_order)
+    child_action = "SELL" if action == "BUY" else "BUY"
+    oca_group = f"TP_{parent_ibkr_id}"  # D-15
+    base_qty = quantity // n
+
+    # WR-03: Batch all N+2 INSERTs in a single transaction, commit once before
+    # any placeOrder call. Previously each INSERT was committed individually, so
+    # a partial failure left orphaned PENDING_SUBMISSION rows with no IBKR orders.
+    # Now an INSERT failure rolls back the entire transaction cleanly.
     with db_conn.cursor() as cur:
+        # 1a. Parent MKT order (D-08 pattern)
         cur.execute(
             """
             INSERT INTO orders
@@ -383,35 +391,26 @@ def _submit_bracket_order(
             (signal_id, parent_ibkr_id, ticker, action, quantity),
         )
         db_parent_order_id = cur.fetchone()[0]
-    db_conn.commit()
 
-    child_action = "SELL" if action == "BUY" else "BUY"
-    oca_group = f"TP_{parent_ibkr_id}"  # D-15
-
-    # 1b. STP child — included in the same OCA group as TPs (WR-01).
-    # OCA type 2 (REDUCE_WITH_BLOCK) causes IBKR to reduce the STP quantity
-    # proportionally as TP orders fill, preventing an oversell if all TPs fill
-    # before the stop triggers.
-    with db_conn.cursor() as cur:
+        # 1b. STP child — included in the same OCA group as TPs (WR-01).
+        # OCA type 2 (REDUCE_WITH_BLOCK) causes IBKR to reduce the STP quantity
+        # proportionally as TP orders fill, preventing an oversell if all TPs fill
+        # before the stop triggers.
         cur.execute(
             """
             INSERT INTO orders
               (signal_id, ibkr_order_id, ticker, action, quantity,
                order_type, status, submitted_at, parent_order_id, oca_group)
             VALUES (%s, %s, %s, %s, %s, 'STP', 'PENDING_SUBMISSION', NOW(), %s, %s)
-            RETURNING id
             """,
             (signal_id, stp_ibkr_id, ticker, child_action, quantity, db_parent_order_id,
              oca_group),
         )
-    db_conn.commit()
 
-    # 1c. LMT TP children — each gets oca_group (D-16)
-    base_qty = quantity // n
-    for i, tp_price in enumerate(take_profits):
-        is_last = (i == n - 1)
-        tp_qty = base_qty if not is_last else quantity - (n - 1) * base_qty  # D-11 remainder rule
-        with db_conn.cursor() as cur:
+        # 1c. LMT TP children — each gets oca_group (D-16)
+        for i, tp_price in enumerate(take_profits):
+            is_last = (i == n - 1)
+            tp_qty = base_qty if not is_last else quantity - (n - 1) * base_qty  # D-11 remainder rule
             cur.execute(
                 """
                 INSERT INTO orders
@@ -422,7 +421,7 @@ def _submit_bracket_order(
                 (signal_id, tp_ibkr_ids[i], ticker, child_action, tp_qty,
                  db_parent_order_id, oca_group),
             )
-        db_conn.commit()
+    db_conn.commit()  # single commit after ALL N+2 INSERTs succeed
 
     # Build contract and order objects
     contract = _build_contract(ticker)
