@@ -5,6 +5,7 @@ Persistent Chrome driver (per D-01), session expiry detection (per D-02),
 category page scraping (per D-06, D-07), and post body extraction.
 """
 import os
+import subprocess
 import time
 import random
 import functools
@@ -30,7 +31,12 @@ logger = logging.getLogger(__name__)
 
 def setup_chrome_driver(headless: bool = True):
     """Create Chrome driver with anti-detection flags. Adapted from selenium-scraper SKILL.md."""
-    os.system("pkill -9 -f 'chrome.*remote-debugging' 2>/dev/null || true")
+    # WR-05: scope pkill to the current user only to avoid killing unrelated Chrome
+    # processes (e.g. admin tools, Puppeteer workers) on a shared GCP VM.
+    subprocess.run(
+        ["pkill", "-9", "-u", str(os.getuid()), "-f", "chrome.*remote-debugging"],
+        check=False,
+    )
     time.sleep(1)
 
     options = ChromeOptions()
@@ -62,7 +68,12 @@ def setup_chrome_driver(headless: bool = True):
             return driver
         except Exception as e:
             logger.warning("Chrome driver attempt %d failed: %s", attempt + 1, e)
-            os.system("pkill -9 -f chrome 2>/dev/null || true")
+            # Scope to current user; avoid the broad "chrome" match that can hit
+            # unrelated processes (WR-05).
+            subprocess.run(
+                ["pkill", "-9", "-u", str(os.getuid()), "-f", "chrome"],
+                check=False,
+            )
             time.sleep(2)
     return None
 
