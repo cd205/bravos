@@ -97,7 +97,7 @@ class BravosScraper:
             raise RuntimeError("Initial login to bravosresearch.com failed after max attempts")
         logger.info("BravosScraper started — driver active, logged in")
 
-    def _login(self, attempt: int = 0) -> bool:
+    def _login(self) -> bool:
         """Login with 3-attempt retry (per D-04). Returns True on success.
 
         Uses By.ID with visible-element filtering because the page has duplicate
