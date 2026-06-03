@@ -135,12 +135,31 @@ def execute_signal(signal_id: int, db_conn) -> None:
         )
         return
 
-    # Submission (D-08 / D-10 / EXEC-02 / EXEC-04)
+    # Submission (D-10 / D-19 / EXEC-02 / EXEC-04)
     ibkr_action = _ACTION_MAP[action_type]
-    final_status = _submit_order(ibapp, signal_id, ticker, ibkr_action, quantity, db_conn)
+    stop_loss = signal.get("stop_loss")
+    take_profits = signal.get("take_profits", [])
+    use_bracket = (
+        stop_loss is not None
+        and stop_loss > 0
+        and len(take_profits) > 0
+        and quantity >= len(take_profits)  # D-20: fall back if too few shares to split
+    )
+    if use_bracket:
+        final_status = _submit_bracket_order(
+            ibapp, signal_id, ticker, ibkr_action, quantity,
+            stop_loss, take_profits, db_conn,
+        )
+    else:
+        if stop_loss is not None and quantity < len(take_profits):
+            logger.warning(
+                "signal_id=%s quantity=%d < %d TPs — falling back to bare MKT order (D-20)",
+                signal_id, quantity, len(take_profits),
+            )
+        final_status = _submit_order(ibapp, signal_id, ticker, ibkr_action, quantity, db_conn)
     logger.info(
-        "signal_id=%s ticker=%s action=%s quantity=%d final_status=%s",
-        signal_id, ticker, ibkr_action, quantity, final_status,
+        "signal_id=%s ticker=%s action=%s quantity=%d bracket=%s final_status=%s",
+        signal_id, ticker, ibkr_action, quantity, use_bracket, final_status,
     )
 
 

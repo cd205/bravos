@@ -344,7 +344,7 @@ def _make_signal(db_conn, ticker="AAPL", action_type="open",
     return sid
 
 
-@pytest.mark.skip(reason="implemented in 09-03-PLAN")
+@pytest.mark.integration
 def test_bracket_db_writes(db_connection):
     """_submit_bracket_order writes N+2 orders rows (1 parent + 1 STP + N TP) to DB."""
     from bravos.execution.executor import _submit_bracket_order
@@ -376,7 +376,7 @@ def test_bracket_db_writes(db_connection):
     assert count == n + 2  # 1 parent + 1 STP + 3 TP
 
 
-@pytest.mark.skip(reason="implemented in 09-03-PLAN")
+@pytest.mark.integration
 def test_bracket_transmit_sequence(db_connection):
     """parent transmit=False, STP transmit=False, last TP transmit=True (D-14)."""
     from bravos.execution.executor import _submit_bracket_order
@@ -410,7 +410,7 @@ def test_bracket_transmit_sequence(db_connection):
     assert captured_orders[3][1] is True                    # TP[1] — last
 
 
-@pytest.mark.skip(reason="implemented in 09-03-PLAN")
+@pytest.mark.integration
 def test_bracket_parent_id(db_connection):
     """Child orders have parentId equal to parent IBKR order ID, NOT the DB row id (pitfall 1)."""
     from bravos.execution.executor import _submit_bracket_order
@@ -443,7 +443,7 @@ def test_bracket_parent_id(db_connection):
     assert len(child_parent_ids) == 2  # STP + 1 TP
 
 
-@pytest.mark.skip(reason="implemented in 09-03-PLAN")
+@pytest.mark.integration
 def test_bracket_oca_group(db_connection):
     """All TP child orders have ocaGroup == f'TP_{parent_ibkr_id}' (D-15)."""
     from bravos.execution.executor import _submit_bracket_order
@@ -476,7 +476,7 @@ def test_bracket_oca_group(db_connection):
     assert len(oca_groups_seen) == 2  # 2 TP children only; STP has no OCA group
 
 
-@pytest.mark.skip(reason="implemented in 09-03-PLAN")
+@pytest.mark.integration
 def test_bracket_quantity_split(db_connection):
     """Equal quantity split with remainder to last TP (D-11): 10 shares, 3 TPs → 3+3+4."""
     from bravos.execution.executor import _submit_bracket_order
@@ -508,7 +508,7 @@ def test_bracket_quantity_split(db_connection):
     assert tp_quantities == [3, 3, 4]  # 10//3=3, 10//3=3, 10-2*3=4
 
 
-@pytest.mark.skip(reason="implemented in 09-03-PLAN")
+@pytest.mark.integration
 def test_bracket_fallback_no_tpsl(db_connection):
     """No TP/SL data → execute_signal falls back to bare MKT _submit_order path (D-19)."""
     from bravos.execution.executor import execute_signal
@@ -533,7 +533,7 @@ def test_bracket_fallback_no_tpsl(db_connection):
     mock_bare.assert_called_once()
 
 
-@pytest.mark.skip(reason="implemented in 09-03-PLAN")
+@pytest.mark.integration
 def test_bracket_fallback_qty_too_small(db_connection):
     """quantity < len(take_profits) → falls back to bare MKT with a warning logged (D-20)."""
     from bravos.execution.executor import execute_signal
