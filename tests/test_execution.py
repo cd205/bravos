@@ -535,12 +535,20 @@ def test_bracket_fallback_no_tpsl(db_connection):
 
 @pytest.mark.integration
 def test_bracket_fallback_qty_too_small(db_connection):
-    """quantity < len(take_profits) → falls back to bare MKT with a warning logged (D-20)."""
+    """quantity < len(take_profits) → falls back to bare MKT with a warning logged (D-20).
+
+    WR-06: test parameters must produce 1 <= quantity < len(take_profits) to exercise
+    the actual D-20 fallback path in execute_signal.
+
+    Calculation: quantity = int(delta * 0.05 * NLV / price)
+      delta=1, price=300, NLV=6000 → int(1 * 0.05 * 6000 / 300) = 1
+      With 3 TPs: 1 < 3 → D-20 fires → _submit_bracket_order never called,
+      _submit_order is called instead with a bare MKT order.
+    """
     from bravos.execution.executor import execute_signal
     from unittest.mock import patch
-    import logging
 
-    # 3 TPs but NLV so tiny that quantity will be 0 or 1 (less than 3)
+    # 3 TPs; quantity will be exactly 1 (< 3) — exercises the D-20 fallback path
     signal_id = _make_signal(db_connection, weight_from=0, weight_to=1,
                               take_profits=[320.0, 350.0, 370.0])
 
@@ -548,8 +556,8 @@ def test_bracket_fallback_qty_too_small(db_connection):
     mock_ibapp.is_connected.return_value = True
     mock_ibapp.next_order_id = int.from_bytes(os.urandom(3), "big") + 70000
     mock_ibapp._order_status_events = {}
-    # Very small NLV → quantity < 3
-    mock_ibapp._account_summary = {"NetLiquidation": "100"}
+    # NLV=6000 → quantity=int(1*0.05*6000/300)=1; 3 TPs → 1 < 3 triggers D-20
+    mock_ibapp._account_summary = {"NetLiquidation": "6000"}
 
     with patch("bravos.execution.executor._submit_bracket_order") as mock_bracket, \
          patch("bravos.execution.executor._submit_order", return_value="SUBMITTED") as mock_bare, \
@@ -558,9 +566,9 @@ def test_bracket_fallback_qty_too_small(db_connection):
          patch("bravos.broker.connection.ibapp", mock_ibapp):
         execute_signal(signal_id, db_connection)
 
+    # D-20 fallback: quantity=1 < 3 TPs → bracket never submitted, bare MKT called
     mock_bracket.assert_not_called()
-    # _submit_order is either called (qty>=1) or not called (qty=0, skipped before submission)
-    # Either way, _submit_bracket_order must NOT have been called
+    mock_bare.assert_called_once()
 
 
 @pytest.mark.integration
