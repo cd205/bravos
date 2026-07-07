@@ -17,6 +17,7 @@ import time
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
 
+from bravos.config import settings
 from bravos.config.settings import IBKR_CLIENT_ID, IBKR_HOST, get_ibkr_port
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,11 @@ _CRITICAL_NO_RETRY_CODES = {501, 507}
 
 # reqId used for reqAccountSummary — must not collide with order reqIds.
 REQ_ID_ACCOUNT_SUMMARY = 9001
+
+# reqId used for reqPnL. Mirrors scripts/run_ingestion.py's REQ_ID_PNL
+# intentionally (kept in sync manually) — must not collide with
+# REQ_ID_ACCOUNT_SUMMARY=9001 above.
+REQ_ID_PNL = 9002
 
 # How often (seconds) to send reqCurrentTime to IB Gateway as a keepalive.
 HEARTBEAT_INTERVAL = 60
@@ -351,6 +357,7 @@ class IBApp(EWrapper, EClient):
             success = self.connect_and_run()
             if success:
                 logger.info("IBApp reconnected on attempt %s (reason=%s)", attempt + 1, reason)
+                self._refresh_after_connect()
                 with self._recon_lock:
                     self._reconnecting = False
                 return
@@ -579,6 +586,78 @@ class IBApp(EWrapper, EClient):
             "execDetailsEnd received (reqId=%s) — all fills for this batch processed",
             reqId,
         )
+
+    # ── Reconnect state refresh ─────────────────────────────────────────────
+
+    def _open_short_lived_db_conn(self):
+        """
+        Open a psycopg2 connection using only bravos.config.settings + env vars.
+
+        Mirrors scripts/run_ingestion.py._get_db_connection() exactly (kept in
+        sync manually — that dependency direction runs the other way, so this
+        module cannot import from run_ingestion.py). Caller is responsible for
+        closing the returned connection.
+        """
+        import os
+        import psycopg2
+
+        password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
+        return psycopg2.connect(
+            host=settings.DB_HOST,
+            port=settings.DB_PORT,
+            dbname=settings.DB_NAME,
+            user=settings.DB_USER,
+            password=password,
+        )
+
+    def _refresh_after_connect(self) -> None:
+        """
+        Re-run the post-connect state refresh after an internal auto-reconnect.
+
+        Mirrors what run_ingestion.py._connect_ibkr() does for the initial
+        connect and SIGUSR2-resume paths (run_startup_reconciliation + fresh
+        fill-callback db_conn + reqPnL re-subscribe), but self-contained: the
+        ibkr-reconnect daemon thread has no injected db_conn, so this method
+        opens and closes its own short-lived connection.
+
+        Every step is wrapped so a DB or subscription failure is logged but
+        never aborts the reconnect — the socket is already back up by the
+        time this runs.
+
+        Deliberately does NOT restart the heartbeat monitor thread: it
+        survives a disconnect (its loop just `continue`s while _connected is
+        clear), so calling that startup method again here would spawn a
+        duplicate background thread.
+        """
+        try:
+            db_conn = self._open_short_lived_db_conn()
+            try:
+                self.run_startup_reconciliation(db_conn, timeout=30)
+            finally:
+                db_conn.close()
+        except Exception:
+            logger.exception(
+                "Reconnect: startup reconciliation failed — account summary may be stale"
+            )
+
+        try:
+            self._db_conn = self._open_short_lived_db_conn()
+        except Exception:
+            logger.exception("Reconnect: failed to open DB connection for fill callbacks")
+            self._db_conn = None
+
+        if self._account_name:
+            try:
+                self.reqPnL(REQ_ID_PNL, self._account_name, "")
+                logger.info(
+                    "Reconnect: reqPnL re-subscribed — account=%s", self._account_name
+                )
+            except Exception:
+                logger.exception(
+                    "Reconnect: reqPnL re-subscription failed — circuit breaker will fail-open"
+                )
+        else:
+            logger.warning("Reconnect: _account_name empty — skipping reqPnL re-subscription")
 
     # ── Plan 03-3: run_startup_reconciliation ─────────────────────────────
 
