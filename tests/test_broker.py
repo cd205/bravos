@@ -191,6 +191,40 @@ def test_reconnect_backoff_delays():
     assert len(conn_module._RETRY_DELAYS) == 5
 
 
+def test_reconnect_success_reruns_reconciliation(monkeypatch):
+    """_refresh_after_connect (called from _reconnect_loop's success path)
+    repopulates _account_summary with a fresh NetLiquidation — regression
+    test for the 2026-07-06 HROW incident where an internal reconnect left
+    _account_summary empty and executor._calculate_quantity computed 0."""
+    from unittest.mock import MagicMock
+    from bravos.broker.connection import IBApp
+
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+    assert app._account_summary == {}
+
+    # Reconnect "succeeds" without a real socket.
+    monkeypatch.setattr(app, "connect_and_run", lambda *a, **k: True)
+
+    # Simulate IBKR replying with a real NLV during reconciliation.
+    def fake_recon(db_conn, timeout=30):
+        app._account_summary["NetLiquidation"] = "500000.00"
+        return True
+
+    monkeypatch.setattr(app, "run_startup_reconciliation", fake_recon)
+
+    # No real DB connection — short-lived connections return a MagicMock.
+    monkeypatch.setattr(app, "_open_short_lived_db_conn", lambda: MagicMock())
+
+    # No real IBKR socket for the reqPnL re-subscription.
+    monkeypatch.setattr(app, "reqPnL", lambda *a, **k: None)
+    app._account_name = "DU123"
+
+    app._refresh_after_connect()
+
+    assert app._account_summary.get("NetLiquidation") == "500000.00"
+    assert app._db_conn is not None
+
+
 # ── Plan 03-3: Startup reconciliation callbacks + snapshot write ────────────
 
 def test_position_end_sets_event():
