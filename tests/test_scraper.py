@@ -12,6 +12,8 @@ Requirement coverage:
 import pytest
 from unittest.mock import MagicMock, patch
 
+from urllib3.exceptions import MaxRetryError
+
 
 def test_startup_loads_credentials():
     from bravos.ingestion.scraper import BravosScraper
@@ -40,6 +42,24 @@ def test_session_valid():
     s.driver.find_elements.return_value = []
     s.driver.current_url = "https://bravosresearch.com/category/portfolio-update/"
     assert s._check_session() == True
+
+
+def test_check_session_returns_false_on_dead_driver():
+    """A dead chromedriver raises urllib3 MaxRetryError, not WebDriverException."""
+    from bravos.ingestion.scraper import BravosScraper
+    s = BravosScraper()
+    s.driver = MagicMock()
+    s.driver.find_elements.side_effect = MaxRetryError(MagicMock(), "url", None)
+    assert s._check_session() is False
+
+
+def test_check_session_returns_false_on_connection_refused():
+    """A dead chromedriver's HTTP transport can also raise a bare ConnectionError."""
+    from bravos.ingestion.scraper import BravosScraper
+    s = BravosScraper()
+    s.driver = MagicMock()
+    s.driver.find_elements.side_effect = ConnectionRefusedError()
+    assert s._check_session() is False
 
 
 def test_reauth_on_expiry():

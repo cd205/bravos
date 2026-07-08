@@ -20,6 +20,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
     TimeoutException, NoSuchElementException, WebDriverException
 )
+from urllib3.exceptions import MaxRetryError
 from webdriver_manager.chrome import ChromeDriverManager
 
 from bravos.config.secrets_config import get_secret
@@ -173,13 +174,21 @@ class BravosScraper:
         return False
 
     def _check_session(self) -> bool:
-        """Return True if session is valid; False if visible login form detected (per D-02)."""
+        """Return True if session is valid; False if visible login form detected (per D-02).
+
+        Also returns False (never raises) when the underlying Chrome driver process
+        has died — a dead chromedriver raises urllib3 MaxRetryError or a bare
+        ConnectionError (e.g. ConnectionRefusedError) instead of WebDriverException,
+        since the failure happens at the HTTP transport layer before Selenium can
+        wrap it. Callers decide whether to re-login or recreate the driver; this
+        method only reports "session not usable".
+        """
         try:
             visible_login = [f for f in self.driver.find_elements(By.ID, settings.LOGIN_USERNAME_ID)
                               if f.is_displayed()]
             return not visible_login
-        except WebDriverException:
-            logger.error("WebDriverException during session check — driver may have crashed")
+        except (WebDriverException, MaxRetryError, ConnectionError) as e:
+            logger.error("Session check failed (driver may be dead): %s", e)
             return False
 
     def fetch_post(self, url: str) -> dict:
