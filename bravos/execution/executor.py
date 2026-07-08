@@ -230,6 +230,11 @@ def _build_order(action: str, quantity: int) -> Order:
     order.tif = "DAY"
     order.transmit = True
     order.outsideRth = False
+    # ibapi 9.81 defaults eTradeOnly/firmQuoteOnly to True; IB Gateway 1045+
+    # rejects any order carrying these deprecated attributes with error 10268.
+    # Must be False until ibapi is upgraded to 10.x (which removes them).
+    order.eTradeOnly = False
+    order.firmQuoteOnly = False
     return order
 
 
@@ -427,6 +432,7 @@ def _submit_bracket_order(
     contract = _build_contract(ticker)
 
     # Parent: MKT, transmit=False (D-14)
+    # error 10268 guard — see _build_order (ibapi 9.81 eTradeOnly/firmQuoteOnly default True)
     parent_order = Order()
     parent_order.action = action
     parent_order.orderType = "MKT"
@@ -434,6 +440,8 @@ def _submit_bracket_order(
     parent_order.tif = "DAY"
     parent_order.transmit = False        # explicitly False — ibapi default is True (pitfall 2)
     parent_order.outsideRth = False      # match _build_order pattern
+    parent_order.eTradeOnly = False
+    parent_order.firmQuoteOnly = False
 
     # STP child: stop loss, OCA type 2 so quantity reduces as TPs fill (WR-01 / D-13)
     stp_order = Order()
@@ -446,6 +454,8 @@ def _submit_bracket_order(
     stp_order.ocaGroup = oca_group       # same OCA group as TPs (WR-01)
     stp_order.ocaType = 2                # REDUCE_WITH_BLOCK — STP qty reduces as TPs fill
     stp_order.transmit = False
+    stp_order.eTradeOnly = False
+    stp_order.firmQuoteOnly = False
 
     # TP children: LMT GTC, OCA type 2 (D-12/D-14/D-15)
     tp_orders = []
@@ -462,6 +472,8 @@ def _submit_bracket_order(
         tp_order.ocaGroup = oca_group
         tp_order.ocaType = 2             # REDUCE_WITH_BLOCK — D-12
         tp_order.transmit = is_last      # D-14: only last TP fires the bracket
+        tp_order.eTradeOnly = False
+        tp_order.firmQuoteOnly = False
         tp_orders.append(tp_order)
 
     # 2. Register status event for parent BEFORE placeOrder (copy _submit_order pattern)

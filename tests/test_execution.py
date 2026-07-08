@@ -215,6 +215,9 @@ def test_build_order_buy():
     assert order.totalQuantity == 100
     assert order.outsideRth is False
     assert order.transmit is True
+    # error 10268 guard: ibapi 9.81 defaults these to True; IB Gateway 1045+ rejects them
+    assert order.eTradeOnly is False
+    assert order.firmQuoteOnly is False
 
 
 def test_build_order_sell():
@@ -225,6 +228,9 @@ def test_build_order_sell():
     assert order.orderType == "MKT"
     assert order.tif == "DAY"
     assert order.totalQuantity == 50
+    # error 10268 guard: ibapi 9.81 defaults these to True; IB Gateway 1045+ rejects them
+    assert order.eTradeOnly is False
+    assert order.firmQuoteOnly is False
 
 
 def test_order_db_write_pending(db_connection):
@@ -408,6 +414,39 @@ def test_bracket_transmit_sequence(db_connection):
     assert captured_orders[1] == (start_id + 1, False)      # STP
     assert captured_orders[2][1] is False                   # TP[0]
     assert captured_orders[3][1] is True                    # TP[1] — last
+
+
+@pytest.mark.integration
+def test_bracket_deprecated_flags_cleared(db_connection):
+    """error 10268 guard: all 4 bracket legs (parent, STP, TP x2) clear eTradeOnly/firmQuoteOnly."""
+    from bravos.execution.executor import _submit_bracket_order
+
+    signal_id = _make_signal(db_connection, take_profits=[320.0, 350.0])
+    mock_ibapp = MagicMock()
+    start_id = int.from_bytes(os.urandom(3), "big") + 50000
+    mock_ibapp.next_order_id = start_id
+    mock_ibapp._order_status_events = {}
+
+    captured = []
+
+    def capture_order(order_id, contract, order, *args, **kwargs):
+        captured.append(order)
+        if order_id == start_id:
+            slot = mock_ibapp._order_status_events.get(order_id)
+            if slot:
+                slot["status"] = "Submitted"
+                slot["event"].set()
+    mock_ibapp.placeOrder = MagicMock(side_effect=capture_order)
+
+    _submit_bracket_order(
+        mock_ibapp, signal_id, "AAPL", "BUY", 20,
+        257.0, [320.0, 350.0], db_connection,
+    )
+
+    assert len(captured) == 4  # parent, STP, TP[0], TP[1]
+    for order in captured:
+        assert order.eTradeOnly is False
+        assert order.firmQuoteOnly is False
 
 
 @pytest.mark.integration
