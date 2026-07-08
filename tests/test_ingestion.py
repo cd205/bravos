@@ -8,8 +8,13 @@ Requirement coverage:
   INGST-03 -> test_dedup_on_conflict
   INGST-06 -> test_raw_html_stored
   AUDIT-01 -> test_audit_fields_populated
+
+run_cycle crash-safety / self-healing (quick-260708-7lk):
+  Pure-mock tests — no DB, no live Chrome. See the "run_cycle dead-driver
+  recovery" section at the bottom of this file.
 """
 import pytest
+from unittest.mock import MagicMock
 
 
 def test_dedup_on_conflict(db_connection):
@@ -67,3 +72,78 @@ def test_audit_fields_populated(db_connection):
     assert row is not None
     assert row[0] == "regex"
     assert row[1] is not None  # scraped_at timestamp
+
+
+# ── run_cycle dead-driver recovery (quick-260708-7lk) ───────────────────────
+# Pure-mock tests: no db_connection fixture, no live Chrome. run_cycle is
+# decorated with @catch_cycle_exceptions, so an unexpected raise is swallowed
+# and logged — to prove "triggers recovery" we assert on the recovery mock
+# being called, not just on the absence of exceptions.
+
+import scripts.run_ingestion as daemon
+
+
+def _make_dead_scraper(login_ok: bool = False) -> MagicMock:
+    """Fake scraper whose session check fails (expired session or dead driver)."""
+    fake = MagicMock()
+    fake._check_session.return_value = False
+    fake._login.return_value = login_ok
+    return fake
+
+
+def test_run_cycle_survives_dead_driver(monkeypatch):
+    """A dead driver must never let an exception escape run_cycle."""
+    fake = _make_dead_scraper(login_ok=False)
+    monkeypatch.setattr(daemon, "_scraper", fake)
+    monkeypatch.setattr(daemon, "_recover_scraper", MagicMock(return_value=True))
+    monkeypatch.setattr(daemon, "_consecutive_recovery_failures", 0)
+    monkeypatch.setattr(daemon.broker_module, "ibapp", None)
+
+    daemon.run_cycle()  # must NOT raise (schedule bookkeeping stays safe)
+
+
+def test_run_cycle_triggers_recovery_on_dead_driver(monkeypatch):
+    """Dead driver (session bad, re-login fails) triggers full driver recreation."""
+    fake = _make_dead_scraper(login_ok=False)
+    recover_mock = MagicMock(return_value=True)
+    monkeypatch.setattr(daemon, "_scraper", fake)
+    monkeypatch.setattr(daemon, "_recover_scraper", recover_mock)
+    monkeypatch.setattr(daemon, "_consecutive_recovery_failures", 0)
+    monkeypatch.setattr(daemon.broker_module, "ibapp", None)
+
+    daemon.run_cycle()
+
+    assert recover_mock.called is True
+    reason = recover_mock.call_args[0][0]
+    assert "recovery" in reason
+
+
+def test_run_cycle_login_recovers_expired_session_without_recreation(monkeypatch):
+    """Expired session with a healthy driver takes the cheap re-login path only."""
+    fake = _make_dead_scraper(login_ok=True)
+    recover_mock = MagicMock(return_value=True)
+    monkeypatch.setattr(daemon, "_scraper", fake)
+    monkeypatch.setattr(daemon, "_recover_scraper", recover_mock)
+    monkeypatch.setattr(daemon, "_consecutive_recovery_failures", 0)
+    monkeypatch.setattr(daemon.broker_module, "ibapp", None)
+
+    daemon.run_cycle()
+
+    assert recover_mock.called is False
+
+
+def test_run_cycle_alerts_after_threshold_failures(monkeypatch):
+    """After RECOVERY_ALERT_THRESHOLD consecutive failed recoveries, send_alert fires
+    — and run_cycle keeps retrying (never raises) across all iterations."""
+    fake = _make_dead_scraper(login_ok=False)
+    alert_mock = MagicMock()
+    monkeypatch.setattr(daemon, "_scraper", fake)
+    monkeypatch.setattr(daemon, "_recover_scraper", MagicMock(return_value=False))
+    monkeypatch.setattr(daemon, "send_alert", alert_mock)
+    monkeypatch.setattr(daemon, "_consecutive_recovery_failures", 0)
+    monkeypatch.setattr(daemon.broker_module, "ibapp", None)
+
+    for _ in range(daemon.RECOVERY_ALERT_THRESHOLD):
+        daemon.run_cycle()  # must never raise
+
+    assert alert_mock.called is True
