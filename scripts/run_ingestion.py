@@ -39,11 +39,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import schedule
 
+from selenium.common.exceptions import WebDriverException
+from urllib3.exceptions import MaxRetryError
+
 import bravos.broker.connection as broker_module
 from bravos.broker.connection import IBApp
 from bravos.config import settings
 from bravos.config.settings import SCRAPE_INTERVAL_SECONDS
-from bravos.ingestion.scraper import BravosScraper
+from bravos.ingestion.scraper import BravosScraper, catch_cycle_exceptions
 from bravos.execution.executor import _gate
 from bravos.notifications.notifier import send_alert, record_parse_outcome
 
@@ -84,36 +87,134 @@ def handle_shutdown(signum, frame):
     _shutdown = True
 
 
+# ── Driver-dead recovery state (quick-260708-7lk) ───────────────────────────
+# Counts consecutive failed full-driver recoveries in run_cycle. Reset to 0 on
+# any healthy check, successful re-login, or successful recovery. When it
+# reaches RECOVERY_ALERT_THRESHOLD an email alert fires — but the daemon keeps
+# retrying recovery every cycle regardless.
+_consecutive_recovery_failures = 0
+RECOVERY_ALERT_THRESHOLD = 3
+
+
+def _recover_scraper(reason: str) -> bool:
+    """Fully recreate the Chrome driver + BravosScraper (shared recovery primitive).
+
+    Used by both the nightly 06:00 UTC restart and run_cycle's dead-driver
+    self-healing. _scraper is set to None BEFORE shutdown so run_cycle()
+    returns early via its null-guard if it fires concurrently. _scraper is
+    only reassigned AFTER BravosScraper.startup() succeeds; if startup raises,
+    _scraper stays None and the daemon keeps running (retries next trigger).
+
+    Returns True on success, False if startup failed (leaving _scraper=None).
+    """
+    global _scraper
+    logger.info("Chrome driver recovery starting (%s) -- recycling BravosScraper", reason)
+
+    old_scraper = _scraper
+    _scraper = None  # Guard: run_cycle returns early if _scraper is None
+
+    if old_scraper is not None:
+        try:
+            old_scraper.shutdown()
+            logger.info("Old Chrome driver shut down")
+        except Exception:
+            logger.warning("Error during old scraper shutdown -- continuing", exc_info=True)
+
+    try:
+        new_scraper = BravosScraper()
+        new_scraper.startup()
+        _scraper = new_scraper
+        logger.info("Chrome driver recovery complete (%s) -- new driver active and logged in", reason)
+        return True
+    except Exception:
+        logger.exception(
+            "Chrome driver recovery FAILED (%s) -- daemon continues without scraper. "
+            "process_alert() calls will be skipped until the next recovery attempt.",
+            reason,
+        )
+        # _scraper remains None; run_cycle() null-guard handles this safely.
+        return False
+
+
+def _attempt_driver_recovery(reason: str) -> bool:
+    """Run _recover_scraper with consecutive-failure bookkeeping + threshold alert.
+
+    Shared by run_cycle's dead-driver path and its scraper-missing (null-guard)
+    path so a failed recovery is retried EVERY cycle — never stranded until the
+    06:00 nightly restart. After RECOVERY_ALERT_THRESHOLD consecutive failures
+    an email alert fires each failing cycle, but retrying always continues.
+    """
+    global _consecutive_recovery_failures
+    recovered = _recover_scraper(reason)
+    if recovered:
+        logger.info("Driver recreated after dead-driver detection")
+        _consecutive_recovery_failures = 0
+    else:
+        _consecutive_recovery_failures += 1
+        logger.error(
+            "Driver recovery failed (%d consecutive failure(s)) — will retry next cycle",
+            _consecutive_recovery_failures,
+        )
+        if _consecutive_recovery_failures >= RECOVERY_ALERT_THRESHOLD:
+            # Email alert (D-02b, NOTF-02 pattern) — daemon keeps retrying.
+            import datetime
+            send_alert(
+                "Scraper Driver Recovery Failing",
+                f"Bravos Research Chrome driver recovery failed at "
+                f"{datetime.datetime.now().isoformat()}\n"
+                f"Consecutive recovery failures: {_consecutive_recovery_failures}\n"
+                f"The Chrome driver is dead and could not be recreated. "
+                f"Daemon keeps retrying every cycle.\n"
+                f"Manual inspection of the VM / Chrome environment may be required.",
+            )
+    return recovered
+
+
+@catch_cycle_exceptions
 def run_cycle():
     """Periodic health-check cycle: verify session is alive and re-authenticate if needed.
 
     In the Gmail-triggered architecture, alerts arrive via email — process_alert(url)
     is called directly by the Gmail poller. This cycle keeps the Chrome driver session
     warm so the scraper is ready to process the next alert without a cold login.
+
+    Crash-safe (quick-260708-7lk): decorated with @catch_cycle_exceptions so NO
+    exception escapes into schedule.run_pending() — schedule always records the
+    run, preserving the 300s cadence and later jobs (06:00 restart, 14:30 reset).
+    A dead chromedriver (MaxRetryError/ConnectionError from the transport layer)
+    is detected here and self-healed via _recover_scraper on this cycle.
     """
-    global _scraper
+    global _scraper, _consecutive_recovery_failures
     if _scraper is None:
-        logger.error("run_cycle called before scraper is initialized")
+        # Scraper missing — either startup recovery failed or a prior cycle's
+        # recovery failed. Retry recovery now instead of waiting for 06:00 UTC.
+        logger.warning("run_cycle: scraper not initialized — attempting driver recovery")
+        _attempt_driver_recovery("scraper-missing recovery")
         return
 
     session_ok = _scraper._check_session()
     if session_ok:
         logger.info("Session health check: OK — driver active and authenticated")
+        _consecutive_recovery_failures = 0
     else:
+        # Session is either expired (login form visible — driver fine) or the
+        # driver is dead. Try the cheap re-login path first; a dead driver's
+        # _login() -> driver.get() raises the same transport errors, so guard it.
         logger.warning("Session health check: FAILED — re-authenticating")
-        if not _scraper._login():
-            logger.error("Re-authentication failed in health check cycle")
-            # Phase 7: email alert (D-02b, NOTF-02)
-            import datetime
-            send_alert(
-                "Scraper Re-Authentication Failed",
-                f"Bravos Research session re-authentication failed at "
-                f"{datetime.datetime.now().isoformat()}\n"
-                f"The Chrome driver session may be broken. Daemon will retry next cycle.\n"
-                f"Manual inspection of the Chrome session may be required.",
-            )
-        else:
+        login_ok = False
+        try:
+            login_ok = _scraper._login()
+        except (WebDriverException, MaxRetryError, ConnectionError) as e:
+            logger.error("Re-login raised transport error — driver is dead: %s", e)
+
+        if login_ok:
             logger.info("Re-authentication succeeded")
+            _consecutive_recovery_failures = 0
+        else:
+            # Driver is dead (or login persistently broken) — recreate it now
+            # instead of waiting for the 06:00 UTC nightly restart.
+            logger.error("Re-authentication failed — treating driver as dead, recreating")
+            _attempt_driver_recovery("driver-dead recovery")
 
     # ── Phase 5: periodic reconciliation (IBKR-04, D-08) ─────────────────
     # Piggybacks on the scrape cycle: every SCRAPE_INTERVAL_SECONDS, fetch
@@ -204,36 +305,14 @@ def _restart_chrome_driver():
     """Recycle Chrome driver nightly to prevent memory accumulation (D-02, D-03).
 
     Called by schedule at 06:00 UTC (~01:00 ET winter). Daemon stays alive;
-    only the Chrome driver is recycled. _scraper is set to None BEFORE
-    shutdown so run_cycle() returns early via its existing null-guard
-    (line 92) if it fires concurrently. _scraper is only reassigned AFTER
-    BravosScraper.startup() succeeds; if startup raises, the daemon continues
-    with _scraper=None until the next nightly attempt.
+    only the Chrome driver is recycled. Delegates to _recover_scraper, which
+    also backs run_cycle's dead-driver self-healing (quick-260708-7lk) — one
+    shared recovery primitive, no duplicated logic. If recovery fails, _scraper
+    stays None and run_cycle retries recovery on its next 300s cycle (it no
+    longer waits for the next nightly attempt).
     """
-    global _scraper
-    logger.info("Nightly Chrome driver restart starting -- recycling BravosScraper (D-02)")
-
-    old_scraper = _scraper
-    _scraper = None  # Guard: run_cycle returns early if _scraper is None (line 92)
-
-    if old_scraper is not None:
-        try:
-            old_scraper.shutdown()
-            logger.info("Old Chrome driver shut down")
-        except Exception:
-            logger.warning("Error during old scraper shutdown -- continuing", exc_info=True)
-
-    try:
-        new_scraper = BravosScraper()
-        new_scraper.startup()
-        _scraper = new_scraper
-        logger.info("Nightly Chrome driver restart complete -- new driver active and logged in")
-    except Exception:
-        logger.exception(
-            "Nightly Chrome driver restart FAILED -- daemon continues without scraper. "
-            "process_alert() calls will be skipped until the next nightly attempt at 06:00 UTC."
-        )
-        # _scraper remains None; run_cycle() null-guard at line 92 handles this safely.
+    logger.info("Nightly Chrome driver restart triggered (D-02)")
+    _recover_scraper("nightly restart")
 
 
 def main():
