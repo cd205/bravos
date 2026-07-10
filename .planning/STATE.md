@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 status: milestone_complete
 stopped_at: Phase 9 context gathered
-last_updated: "2026-06-02T05:07:35.802Z"
+last_updated: "2026-06-04T05:18:19.592Z"
 progress:
   total_phases: 9
   completed_phases: 7
   total_plans: 35
-  completed_plans: 30
-  percent: 78
+  completed_plans: 33
+  percent: 94
 ---
 
 # Project State
@@ -20,12 +20,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-01)
 
 **Core value:** When a new trade alert is posted on Bravos Research, the correct order is placed in IBKR within minutes — without manual intervention.
-**Current focus:** Phase 09 — bracket-orders
+**Current focus:** Phase 08 — live-deployment
 
 ## Current Position
 
-Phase: 09
-Plan: Not started
+Phase: 08 (live-deployment) — EXECUTING
+Plan: 1 of 3
 
 ## Performance Metrics
 
@@ -111,8 +111,18 @@ None yet.
 - [Phase 1]: Bravos site anti-bot posture unconfirmed at 5-minute polling interval — monitor during Phase 1 implementation.
 - [Phase 7]: IB Gateway nightly restart window timing (~11:45pm–12:15am ET) needs confirmation against actual Gateway behavior before configuring the systemd pause timer.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260707-75m | Fix IBKR reconnect not re-running reconciliation (stale-NLV silent trade drop) | 2026-07-07 | 71d5b25 | [260707-75m](./quick/260707-75m-fix-ibkr-reconnect-loop-not-re-running-s/) |
+| 260708-7lk | Fix Chrome driver crash death loop (self-healing run_cycle) | 2026-07-08 | 98c3391 | [260708-7lk](./quick/260708-7lk-fix-chrome-driver-crash-death-loop-dead-/) |
+| 260708-9az | Fix IBKR error 10268 (clear eTradeOnly/firmQuoteOnly on all orders) | 2026-07-08 | e2f1f74 | [260708-9az](./quick/260708-9az-fix-ibkr-error-10268-ibapi-9-81-order-de/) |
+| 260710-7bi | Session 0b: test-DB isolation guard — tests can never write to production bravos_trading | 2026-07-10 | 25b761d | [260710-7bi](./quick/260710-7bi-session-0b-from-planning-implementation-/) |
+
 ## Session Continuity
 
+Last activity: 2026-07-10 - Completed quick task 260710-7bi: test-DB isolation guard (IMPLEMENTATION_PLAN.md Session 0b)
 Last session: 2026-06-01T05:11:23.989Z
 Stopped at: Phase 9 context gathered
 Resume file: .planning/phases/09-bracket-orders/09-CONTEXT.md
