@@ -1,12 +1,12 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-01T05:43:12.336Z",
+  "timestamp": "2026-07-10T05:34:34.950Z",
   "source": "auto-postool",
   "partial": false,
   "phase": null,
   "phase_name": "08 (live-deployment) — EXECUTING",
   "phase_dir": null,
-  "plan": "3",
+  "plan": "1",
   "task": null,
   "total_tasks": null,
   "status": "auto-checkpoint",
@@ -194,13 +194,65 @@
     },
     {
       "status": "M",
+      "path": "bravos/ingestion/parser.py"
+    },
+    {
+      "status": "M",
+      "path": "bravos/ingestion/scraper.py"
+    },
+    {
+      "status": "M",
       "path": "notebooks/trade-status-viewer.ipynb"
     },
     {
+      "status": "M",
+      "path": "scripts/execute_pending.py"
+    },
+    {
+      "status": "M",
+      "path": "scripts/run_ingestion.py"
+    },
+    {
       "status": "??",
-      "path": ".planning/phases/09-bracket-orders/09-RESEARCH.md"
+      "path": ".planning/IMPLEMENTATION_PLAN.md"
+    },
+    {
+      "status": "??",
+      "path": ".planning/phases/09-bracket-orders/09-PATTERNS.md"
+    },
+    {
+      "status": "??",
+      "path": ".planning/quick/260707-75m-fix-ibkr-reconnect-loop-not-re-running-s/"
+    },
+    {
+      "status": "??",
+      "path": ".planning/quick/260708-7lk-fix-chrome-driver-crash-death-loop-dead-/"
+    },
+    {
+      "status": "??",
+      "path": ".planning/quick/260708-9az-fix-ibkr-error-10268-ibapi-9-81-order-de/"
+    },
+    {
+      "status": "??",
+      "path": "IMPROVEMENTS.md"
+    },
+    {
+      "status": "??",
+      "path": "infra/bravos-pause"
+    },
+    {
+      "status": "??",
+      "path": "infra/bravos-resume"
+    },
+    {
+      "status": "??",
+      "path": "scripts/backfill_tp_sl.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/check_positions.py"
     }
   ],
   "next_action": null,
-  "context_notes": "Stopped at: Phase 9 context gathered\n\nRecent commits:\n1b2413a docs(state): record Phase 9 context session\n2e73dfd docs(09): add Phase 9 bracket orders to roadmap and capture context\n60df961 fix(parser): infer weights for open/close signals without explicit from/to\n9af7fb4 feat(notebooks): add trade-status-viewer.ipynb\n5b310a9 fix(scraper): return existing signal_id on ON CONFLICT, fix execute_pending socket dispatch"
+  "context_notes": "Stopped at: Phase 9 context gathered\n\nRecent commits:\n891c9c8 docs(quick-260710-7bi): test-DB isolation guard — Session 0b complete\n5748ae1 chore: merge quick task worktree (worktree-agent-af1e05d24ee24246f)\n25b761d test(quick-260710-7bi): add post-suite fake-lot regression finalizer\n8150449 fix(quick-260710-7bi): guard db_connection fixture against production DB\n9e616a6 docs(260710-7bi): pre-dispatch plan for test-DB isolation guard (Session 0b)"
 }
