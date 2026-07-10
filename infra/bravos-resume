@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Resume the Bravos trading system after a TWS / IB desktop session.
+#
+# What this does:
+#   1. Starts IB Gateway
+#   2. Waits for Gateway to be ready
+#   3. Reconnects the Python daemon to IB Gateway and flushes any queued signals
+#
+# Deploy: sudo cp infra/bravos-resume /usr/local/bin/ && sudo chmod +x /usr/local/bin/bravos-resume
+
+set -euo pipefail
+
+TRADING_SERVICE="bravos-trading.service"
+GATEWAY_SERVICE="ibgateway.service"
+
+echo "==> Resuming Bravos trading system..."
+
+# Step 1: start IB Gateway
+if systemctl is-active --quiet "$GATEWAY_SERVICE"; then
+    echo "    [1/2] IB Gateway already running"
+else
+    sudo systemctl start "$GATEWAY_SERVICE"
+    echo -n "    [1/2] IB Gateway starting"
+    # Wait up to 30s for Gateway to be ready (it takes a few seconds to bind port)
+    for i in $(seq 1 30); do
+        if ss -tlnp 2>/dev/null | grep -q ':4002'; then
+            echo " — ready (${i}s)"
+            break
+        fi
+        echo -n "."
+        sleep 1
+        if [[ $i -eq 30 ]]; then
+            echo ""
+            echo "    WARNING: Gateway port 4002 not detected after 30s — continuing anyway"
+        fi
+    done
+fi
+
+# Step 2: tell the Python daemon to reconnect and flush queued signals
+if systemctl is-active --quiet "$TRADING_SERVICE"; then
+    MAIN_PID=$(systemctl show -p MainPID --value "$TRADING_SERVICE")
+    if [[ -n "$MAIN_PID" && "$MAIN_PID" != "0" ]]; then
+        sudo kill -USR2 "$MAIN_PID"
+        echo "    [2/2] Python daemon reconnecting to IB Gateway"
+    else
+        echo "    [2/2] WARNING: could not find trading daemon PID — skipping"
+    fi
+else
+    echo "    [2/2] Trading daemon not running — skipping"
+fi
+
+echo ""
+echo "Bravos is RESUMING."
+echo "Check status: journalctl -u bravos-trading.service -n 20 --no-pager"

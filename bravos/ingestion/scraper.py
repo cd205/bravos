@@ -328,22 +328,38 @@ class BravosScraper:
         # same signal — no uniqueness constraint on (signal_id) in orders table prevents it.
         # signal_id may still be None if the DB lookup itself failed (is_new=False case).
         if is_new and signal_id is not None and parsed.get("confidence") == "high":
-            from bravos.execution.executor import execute_signal
-            import psycopg2
-            password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
-            exec_conn = psycopg2.connect(
-                host=settings.DB_HOST,
-                port=settings.DB_PORT,
-                dbname=settings.DB_NAME,
-                user=settings.DB_USER,
-                password=password,
-            )
+            # Check if the IBKR connection is paused (USR1 received, waiting for USR2).
+            # Import lazily to avoid circular imports — run_ingestion sets these at startup.
             try:
-                execute_signal(signal_id, exec_conn)
-            except Exception:
-                logger.exception("execute_signal raised for signal_id=%s — continuing", signal_id)
-            finally:
-                exec_conn.close()
+                import scripts.run_ingestion as _daemon
+                ibkr_paused = _daemon._ibkr_paused
+                paused_queue = _daemon._paused_signal_queue
+            except (ImportError, AttributeError):
+                ibkr_paused = False
+                paused_queue = None
+
+            if ibkr_paused and paused_queue is not None:
+                paused_queue.put(signal_id)
+                logger.info(
+                    "IBKR paused — signal_id=%s queued for execution on resume", signal_id
+                )
+            else:
+                from bravos.execution.executor import execute_signal
+                import psycopg2
+                password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
+                exec_conn = psycopg2.connect(
+                    host=settings.DB_HOST,
+                    port=settings.DB_PORT,
+                    dbname=settings.DB_NAME,
+                    user=settings.DB_USER,
+                    password=password,
+                )
+                try:
+                    execute_signal(signal_id, exec_conn)
+                except Exception:
+                    logger.exception("execute_signal raised for signal_id=%s — continuing", signal_id)
+                finally:
+                    exec_conn.close()
 
     def shutdown(self):
         """Graceful shutdown — quit Chrome driver (SIGTERM handler)."""

@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Pause the Bravos trading system so you can log into TWS / IB desktop.
+#
+# What this does:
+#   1. Disconnects the Python daemon from IB Gateway (queues any new signals)
+#   2. Stops IB Gateway — freeing the IBKR session slot for TWS
+#
+# Run 'bravos-resume' when done with TWS to bring everything back up.
+#
+# Deploy: sudo cp infra/bravos-pause /usr/local/bin/ && sudo chmod +x /usr/local/bin/bravos-pause
+
+set -euo pipefail
+
+TRADING_SERVICE="bravos-trading.service"
+GATEWAY_SERVICE="ibgateway.service"
+
+echo "==> Pausing Bravos trading system..."
+
+# Step 1: tell the Python daemon to disconnect from ibapi gracefully
+if systemctl is-active --quiet "$TRADING_SERVICE"; then
+    MAIN_PID=$(systemctl show -p MainPID --value "$TRADING_SERVICE")
+    if [[ -n "$MAIN_PID" && "$MAIN_PID" != "0" ]]; then
+        sudo kill -USR1 "$MAIN_PID"
+        sleep 1  # give ibapi time to disconnect cleanly
+        echo "    [1/2] Python daemon disconnected from IB Gateway"
+    else
+        echo "    [1/2] WARNING: could not find trading daemon PID — skipping"
+    fi
+else
+    echo "    [1/2] Trading daemon not running — skipping"
+fi
+
+# Step 2: stop IB Gateway to free the IBKR session slot
+if systemctl is-active --quiet "$GATEWAY_SERVICE"; then
+    sudo systemctl stop "$GATEWAY_SERVICE"
+    echo "    [2/2] IB Gateway stopped — IBKR session slot is free"
+else
+    echo "    [2/2] IB Gateway already stopped"
+fi
+
+echo ""
+echo "Bravos is PAUSED. You can now log into TWS / IB desktop."
+echo "Run 'bravos-resume' when done to bring everything back up."

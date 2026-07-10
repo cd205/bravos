@@ -26,6 +26,7 @@ Architecture note (per 02-03 selector discovery):
 Per decisions: D-01, D-13, D-16.
 """
 import os
+import queue
 import signal
 import socket
 import sys
@@ -65,6 +66,14 @@ REQ_ID_PNL = 9002
 _shutdown = False
 _scraper: BravosScraper | None = None
 
+# ── IBKR pause/resume state ──────────────────────────────────────────────────
+# SIGUSR1 pauses the IBKR connection so TWS/desktop can connect.
+# SIGUSR2 resumes it and flushes any signals that arrived while paused.
+# _paused is read on the alert-socket thread, written only from signal handlers
+# (main thread). queue.Queue is thread-safe; no extra lock needed.
+_ibkr_paused = False
+_paused_signal_queue: queue.Queue[int] = queue.Queue()
+
 
 def _get_db_connection():
     """Open a psycopg2 connection for reconciliation. Closed after use."""
@@ -85,6 +94,117 @@ def handle_shutdown(signum, frame):
     global _shutdown
     logger.info("Received signal %s — initiating graceful shutdown", signum)
     _shutdown = True
+
+
+def _connect_ibkr(ibapp: IBApp) -> bool:
+    """Connect ibapp to IB Gateway and run startup reconciliation + subscriptions.
+
+    Extracted so both main() and handle_resume() can reuse the same sequence.
+    Returns True if connected successfully.
+    """
+    ibkr_ok = ibapp.connect_and_run(timeout=30)
+    if not ibkr_ok:
+        logger.error(
+            "IBKR connect failed (mode=%s port=%d) — orders will not be placed",
+            settings.TRADING_MODE, settings.get_ibkr_port(),
+        )
+        ibapp.start_background_reconnect()
+        return False
+
+    try:
+        _db_conn = _get_db_connection()
+        ibapp.run_startup_reconciliation(_db_conn, timeout=30)
+        _db_conn.close()
+    except Exception:
+        logger.exception("Startup reconciliation failed — continuing")
+
+    try:
+        ibapp._db_conn = _get_db_connection()
+    except Exception:
+        logger.exception("Failed to open DB connection for fill callbacks")
+        ibapp._db_conn = None
+
+    if ibapp._account_name:
+        try:
+            ibapp.reqPnL(REQ_ID_PNL, ibapp._account_name, "")
+            logger.info("reqPnL subscription started — account=%s", ibapp._account_name)
+        except Exception:
+            logger.exception("reqPnL subscription failed — circuit breaker will fail-open")
+    else:
+        logger.warning("_account_name empty — skipping reqPnL subscription")
+
+    ibapp.start_heartbeat_monitor()
+    return True
+
+
+def handle_pause(signum, frame):
+    """SIGUSR1: disconnect IBKR so TWS/desktop can connect.
+
+    Alerts that arrive while paused are queued and flushed on resume.
+    Chrome driver and Gmail poller are unaffected.
+    """
+    global _ibkr_paused
+    if _ibkr_paused:
+        logger.info("SIGUSR1 received but already paused — ignoring")
+        return
+    _ibkr_paused = True
+    logger.info("IBKR PAUSED — disconnecting ibapi so TWS can connect (run 'bravos-resume' when done)")
+    if broker_module.ibapp is not None:
+        try:
+            broker_module.ibapp.stop()
+        except Exception:
+            logger.warning("Error stopping ibapp during pause", exc_info=True)
+
+
+def handle_resume(signum, frame):
+    """SIGUSR2: reconnect IBKR and flush any signals queued during the pause."""
+    global _ibkr_paused
+    if not _ibkr_paused:
+        logger.info("SIGUSR2 received but not paused — ignoring")
+        return
+    _ibkr_paused = False
+    logger.info("IBKR RESUMING — reconnecting ibapi...")
+
+    _ibapp = IBApp(
+        host=settings.IBKR_HOST,
+        port=settings.get_ibkr_port(),
+        client_id=settings.IBKR_CLIENT_ID,
+    )
+    broker_module.ibapp = _ibapp
+    connected = _connect_ibkr(_ibapp)
+
+    if connected:
+        logger.info("IBKR reconnected after pause")
+    else:
+        logger.error("IBKR reconnect failed after pause — background reconnect started")
+
+    # Flush signals that arrived while paused
+    queued = []
+    while not _paused_signal_queue.empty():
+        try:
+            queued.append(_paused_signal_queue.get_nowait())
+        except queue.Empty:
+            break
+
+    if queued:
+        logger.info("Flushing %d signal(s) queued during IBKR pause: %s", len(queued), queued)
+        from bravos.execution.executor import execute_signal
+        import psycopg2
+        password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
+        for signal_id in queued:
+            try:
+                exec_conn = psycopg2.connect(
+                    host=settings.DB_HOST, port=settings.DB_PORT,
+                    dbname=settings.DB_NAME, user=settings.DB_USER, password=password,
+                )
+                try:
+                    execute_signal(signal_id, exec_conn)
+                finally:
+                    exec_conn.close()
+            except Exception:
+                logger.exception("Failed to execute queued signal_id=%s after resume", signal_id)
+    else:
+        logger.info("No signals queued during pause")
 
 
 # ── Driver-dead recovery state (quick-260708-7lk) ───────────────────────────
@@ -320,8 +440,10 @@ def main():
 
     signal.signal(signal.SIGTERM, handle_shutdown)
     signal.signal(signal.SIGINT, handle_shutdown)
+    signal.signal(signal.SIGUSR1, handle_pause)
+    signal.signal(signal.SIGUSR2, handle_resume)
 
-    # ── IBKR startup (Phase 3) ────────────────────────────────────────────────
+    # ── IBKR startup ─────────────────────────────────────────────────────────
     logger.info(
         "Starting IBKR connection — mode=%s host=%s port=%d client_id=%d",
         settings.TRADING_MODE,
@@ -336,56 +458,7 @@ def main():
     )
     broker_module.ibapp = _ibapp
 
-    ibkr_ok = _ibapp.connect_and_run(timeout=30)
-    if ibkr_ok:
-        logger.info("IBKR connected — running startup reconciliation")
-        try:
-            _db_conn = _get_db_connection()
-            _ibapp.run_startup_reconciliation(_db_conn, timeout=30)
-            _db_conn.close()
-        except Exception:
-            logger.exception("Startup reconciliation failed — continuing without reconciliation")
-
-        # ── Phase 5: install dedicated DB connection for fill callbacks ──
-        # execDetails and orderStatus fire on the ibkr-api thread. This
-        # connection is owned by that thread and is NEVER shared with the
-        # main thread or the executor (psycopg2 connections are not thread-safe;
-        # see RESEARCH Pitfall 1). The connection is intentionally not
-        # closed at this scope — it lives for the daemon process lifetime and
-        # is implicitly cleaned up by ibapp.stop() at shutdown.
-        try:
-            _ibapp._db_conn = _get_db_connection()
-            logger.info(
-                "IBApp._db_conn installed for fill callbacks (Phase 5 — EXEC-05/EXEC-06)"
-            )
-        except Exception:
-            logger.exception(
-                "Failed to open DB connection for ibapp._db_conn — fill captures will be skipped"
-            )
-            _ibapp._db_conn = None
-
-        # Phase 4: subscribe to reqPnL so the risk gate's circuit breaker
-        # has live data. managedAccounts callback (added in Plan 04-02) fires
-        # during the connect handshake, so _account_name is populated by the
-        # time run_startup_reconciliation returns (RESEARCH Pitfall 3).
-        if _ibapp._account_name:
-            try:
-                _ibapp.reqPnL(REQ_ID_PNL, _ibapp._account_name, "")
-                logger.info(
-                    "reqPnL subscription started — req_id=%s account=%s (RISK-03 circuit breaker active)",
-                    REQ_ID_PNL, _ibapp._account_name,
-                )
-            except Exception:
-                logger.exception(
-                    "reqPnL subscription failed for account=%s — circuit breaker will fail-open",
-                    _ibapp._account_name,
-                )
-        else:
-            logger.warning(
-                "_account_name is empty after handshake — skipping reqPnL subscription. "
-                "Circuit breaker will fail-open (ibapp._daily_pnl will stay None)."
-            )
-        _ibapp.start_heartbeat_monitor()
+    if _connect_ibkr(_ibapp):
         logger.info("IBKR ready — heartbeat monitor started")
     else:
         logger.critical(
@@ -395,7 +468,8 @@ def main():
             settings.TRADING_MODE,
             settings.get_ibkr_port(),
         )
-        _ibapp.start_background_reconnect()
+    logger.info("Pause:  sudo systemctl kill -s USR1 bravos-trading.service  (or: bravos-pause)")
+    logger.info("Resume: sudo systemctl kill -s USR2 bravos-trading.service  (or: bravos-resume)")
     # ── End IBKR startup ──────────────────────────────────────────────────────
 
     logger.info("Starting ingestion daemon...")
