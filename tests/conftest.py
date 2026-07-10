@@ -64,6 +64,73 @@ def db_connection():
         conn.close()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _assert_no_fake_lots():
+    """
+    Session-scoped regression guard: after the full test suite runs, assert
+    that no fake position_lots rows (matching the isolation-leak pattern
+    ^(OPN|PAR|FIF|SPN)_) were written to the effective database.
+
+    This is the safety net behind the db_connection production-DB guard: if a
+    future test somehow writes to a real DB (authorized scratch-DB run, or a
+    bug reintroducing the leak), the build fails loudly instead of silently
+    polluting position_lots (and by extension the risk gate's open-position
+    count) — see IMPROVEMENTS.md item 14.
+
+    Only runs the check when a DB connection is actually authorized:
+      - BRAVOS_TEST_DB_OK=1 (production DB explicitly accepted), or
+      - settings.DB_NAME != "bravos_trading" (pointed at a scratch DB)
+    On pure-unit-only runs (neither set), this fixture does nothing — it
+    never opens a connection, so it can't itself trip the production-DB
+    guard or fail on a machine with no reachable DB.
+    """
+    yield
+
+    from bravos.config import settings
+
+    authorized = (
+        os.environ.get("BRAVOS_TEST_DB_OK") == "1" or settings.DB_NAME != "bravos_trading"
+    )
+    if not authorized:
+        return
+
+    import psycopg2
+
+    password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
+    try:
+        conn = psycopg2.connect(
+            host=settings.DB_HOST,
+            port=settings.DB_PORT,
+            dbname=settings.DB_NAME,
+            user=settings.DB_USER,
+            password=password,
+        )
+    except Exception as exc:
+        # Regression guard, not a primary assertion — an unreachable DB here
+        # should not mask real test results, so degrade to a warning.
+        import warnings
+
+        warnings.warn(f"_assert_no_fake_lots: could not connect to verify isolation ({exc})")
+        return
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FROM position_lots WHERE ticker ~ %s",
+                ("^(OPN|PAR|FIF|SPN)_",),
+            )
+            (count,) = cur.fetchone()
+    finally:
+        conn.close()
+
+    if count > 0:
+        pytest.fail(
+            f"ISOLATION LEAK: {count} fake position_lots rows matching "
+            "^(OPN|PAR|FIF|SPN)_ found after test run — a test wrote to a real "
+            "DB. Purge them and fix the leaking test."
+        )
+
+
 @pytest.fixture
 def chrome_options():
     """
