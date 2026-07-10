@@ -11,22 +11,51 @@ import pytest
 @pytest.fixture
 def db_connection():
     """
-    Yields a live psycopg2 connection to the bravos_trading database.
+    Yields a live psycopg2 connection to the effective configured database
+    (bravos.config.settings.DB_NAME).
 
-    Connection string: postgresql://bravos@localhost/bravos_trading
+    Connection string: postgresql://{DB_USER}@{DB_HOST}/{DB_NAME}
     Password: read from BRAVOS_DB_PASSWORD env var, falling back to
     'change_me_at_deploy' (the placeholder used before Secret Manager is wired).
+
+    ISOLATION GUARD: this fixture (and therefore every test that requests it)
+    refuses to run against the production database ('bravos_trading') unless
+    explicitly authorized via BRAVOS_TEST_DB_OK=1 or by pointing BRAVOS_DB_NAME
+    at a scratch database. This guard exists because DB-writing tests
+    (bravos.execution.positions.open_lot / partial_close_lot) commit
+    internally, so a test's try/finally rollback happens too late to undo the
+    write — fake position_lots rows leaked into production on 2026-06-29 and
+    2026-07-07/09 (IMPROVEMENTS.md item 14). Pure-mock tests never request
+    this fixture and are completely unaffected.
 
     The connection is closed automatically after each test.
     """
     import psycopg2
 
+    from bravos.config import settings
+
+    effective_db = settings.DB_NAME
+
+    if effective_db == "bravos_trading" and os.environ.get("BRAVOS_TEST_DB_OK") != "1":
+        pytest.exit(
+            "REFUSING to run DB-touching tests against the PRODUCTION database "
+            "'bravos_trading'.\n"
+            "Test writes here previously leaked fake position_lots into production "
+            "(item 14).\n"
+            "To run safely, either:\n"
+            "  - point tests at a scratch DB:  export BRAVOS_DB_NAME=bravos_test\n"
+            "  - or explicitly accept the risk: export BRAVOS_TEST_DB_OK=1\n"
+            "(Pure unit tests that do not touch the DB are unaffected and need no "
+            "env vars.)",
+            returncode=1,
+        )
+
     password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
     conn = psycopg2.connect(
-        host="127.0.0.1",
-        port=5432,  # Cloud SQL Auth Proxy listens here
-        dbname="bravos_trading",
-        user="bravos",
+        host=settings.DB_HOST,
+        port=settings.DB_PORT,  # Cloud SQL Auth Proxy listens here
+        dbname=effective_db,
+        user=settings.DB_USER,
         password=password,
     )
     try:
