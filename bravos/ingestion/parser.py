@@ -9,47 +9,79 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# _P: price pattern supporting optional thousands comma grouping (e.g. $1,985 or $29.51)
+# Defined first so it can be reused by PRICE_RE and the Phase 9 patterns below.
+_P = r'\d+(?:,\d{3})*(?:\.\d{1,2})?'
+
 # Regex patterns (validated against real post titles and bodies)
 TICKER_RE = re.compile(r'\$([A-Z]{1,5})\b')
 # Fallback: matches bare ticker in parentheses, e.g. "(CPER)" in og:title where $ is absent.
 TICKER_PAREN_RE = re.compile(r'\(([A-Z]{1,5})\)')
-PRICE_RE = re.compile(r'at \$(\d+(?:\.\d{1,2})?)')
-# Matches "weight from X to Y", "weight of X to Y", "weight X to Y",
-# "weight allocation from X to Y", "weight position from X to Y", etc.
+# CR: use _P so comma-formatted prices like $1,985.00 are captured correctly (not just $1).
+PRICE_RE = re.compile(rf'at \$({_P})')
+# WEIGHT_RE — matches weight transitions (from X to Y).
+# Observed phrasings across all real alerts:
+#   "weight from 5 to 4"
+#   "weight allocation from 5 to 4"
+#   "weight allocation from a 3 to 6"     ← "a" before first number
+#   "weight of 4 to a weight of 3"        ← repeated "weight of" phrase
+#   "weight allocation 5 to 4"            ← no "from"
+#   "reducing the weight allocation 5 to 4"
+#   "Weight Allocation: 5 to 4"           ← colon form (rare)
+# Strategy: find "weight" then allow up to 4 optional words, then an optional number
+# (weight_from), then "to", then allow up to 3 optional words, then weight_to.
+# The (?:a\s+)? handles the "from a 3 to 6" case.
 WEIGHT_RE = re.compile(
-    r'weight(?:\s+\w+){0,3}?\s+(?:from\s+)?(\d+)\s+to\s+(\d+)',
+    r'weight(?:\s+\w+){0,4}?[\s:]+(?:from\s+)?(?:a\s+)?(\d+)\s+to\s+(?:\w+\s+){0,3}?(\d+)',
     re.IGNORECASE,
 )
-# Matches a single weight value with no from/to, e.g. "with a weight of 5"
-# Used for open signals where weight_from is implicitly 0.
+
+# WEIGHT_TO_ONLY_RE — matches reductions that state only the target weight, no from value.
+# Observed phrasings:
+#   "reducing weight allocation to 1"
+#   "reducing its weight to 3"
+#   "Weight Allocation: 5"               ← structured summary block (single value)
+# Used as fallback when WEIGHT_RE finds nothing — weight_from stays None.
+WEIGHT_TO_ONLY_RE = re.compile(
+    r'weight(?:\s+\w+){0,3}?\s+to\s+(\d+)',
+    re.IGNORECASE,
+)
+
+# WEIGHT_SINGLE_RE — matches a lone weight value on open signals (weight_from implicitly 0).
+# Observed phrasings:
+#   "with a weight of 5"
+#   "with a weight allocation of 5"
+#   "Weight Allocation: 5"               ← structured summary block
+#   "weight allocation of 5"
+# The (?!\s+to) negative lookahead prevents matching the from-value in "weight of 4 to 3".
 WEIGHT_SINGLE_RE = re.compile(
-    r'weight\s+of\s+(\d+)(?!\s+to)',
+    r'weight(?:\s+\w+){0,2}(?:\s+of|:)\s*(\d+)(?!\s+to)',
     re.IGNORECASE,
 )
 
 # Phase 9: Stop loss and take profit extraction (body only, D-01/D-02/D-04)
-# Structured: "Suggested Stop Loss (SL): $257"
+# Structured: "Suggested Stop Loss (SL): $257" or "$1,420" (comma-formatted)
 # Prose:      "stop at $195", "a stop of $195", "stop loss at $195", "stop loss of $195"
 # CR-02: (?:\s+loss)? makes "loss" optional so both "stop at" and "stop loss at" match.
 STOP_LOSS_RE = re.compile(
     r'(?:'
-    r'Suggested Stop Loss.*?\$(\d+(?:\.\d{1,2})?)'
-    r'|stop(?:\s+loss)?\s+(?:at|of)\s+\$(\d+(?:\.\d{1,2})?)'
+    rf'Suggested Stop Loss.*?\$({_P})'
+    rf'|stop(?:\s+loss)?\s+(?:at|of)\s+\$({_P})'
     r')',
     re.IGNORECASE,
 )
 
-# Structured: "Take Profit (TP): $320, $350, and $370"
+# Structured: "Take Profit (TP): $320, $350, and $370" or "$1,800, $2,000"
 # Prose:      "price targets of $250, $275, and $300"
 TAKE_PROFIT_RE = re.compile(
     r'(?:'
-    r'Take Profit.*?:\s*((?:\$\d+(?:\.\d{1,2})?[\s,and]*)+)'
-    r'|price targets?\s+of\s+((?:\$\d+(?:\.\d{1,2})?[\s,and]*)+)'
+    rf'Take Profit.*?:\s*((?:\${_P}[\s,and]*)+)'
+    rf'|price targets?\s+of\s+((?:\${_P}[\s,and]*)+)'
     r')',
     re.IGNORECASE,
 )
 # Helper: extract individual dollar amounts from a TP match group string
-PRICE_IN_LIST_RE = re.compile(r'\$(\d+(?:\.\d{1,2})?)')
+PRICE_IN_LIST_RE = re.compile(rf'\$({_P})')
 
 # Action type keyword map — real observed vocabulary from post titles.
 # Order matters: longer/more specific phrases must come BEFORE shorter substrings.
@@ -250,7 +282,7 @@ def parse_signal(title: str, body: str) -> dict:
 
     # --- Reference price (body only, first match) ---
     price_match = PRICE_RE.search(body)
-    reference_price = float(price_match.group(1)) if price_match else None
+    reference_price = float(price_match.group(1).replace(",", "")) if price_match else None
 
     # --- Weight (body only — title never contains weight notation per research pitfall #4) ---
     weight_match = WEIGHT_RE.search(body)
@@ -268,13 +300,19 @@ def parse_signal(title: str, body: str) -> dict:
     if weight_from is None and weight_to is None:
         single_match = WEIGHT_SINGLE_RE.search(body)
         if single_match and title_action == "open":
-            # "with a weight of 5" on an open → starting from 0
+            # "with a weight allocation of 5" / "Weight Allocation: 5" on an open → from 0
             weight_from = 0
             weight_to = int(single_match.group(1))
         elif title_action == "close":
             # "closing our position" with no weight → weight goes to 0
             weight_from = None  # unknown starting weight; leave None
             weight_to = 0
+        elif single_match is None:
+            # Last resort: "reducing weight allocation to 1" / "reducing its weight to 3"
+            to_only = WEIGHT_TO_ONLY_RE.search(body)
+            if to_only:
+                weight_from = None
+                weight_to = int(to_only.group(1))
 
     # --- spaCy fallback when no $TICKER found ---
     if ticker is None:
@@ -298,7 +336,7 @@ def parse_signal(title: str, body: str) -> dict:
     if sl_match:
         raw = sl_match.group(1) or sl_match.group(2)
         try:
-            stop_loss = float(raw)
+            stop_loss = float(raw.replace(",", ""))
         except (TypeError, ValueError):
             stop_loss = None
     else:
@@ -309,7 +347,7 @@ def parse_signal(title: str, body: str) -> dict:
     if tp_match:
         tp_string = tp_match.group(1) or tp_match.group(2)
         try:
-            take_profits = [float(p) for p in PRICE_IN_LIST_RE.findall(tp_string)]
+            take_profits = [float(p.replace(",", "")) for p in PRICE_IN_LIST_RE.findall(tp_string)]
         except (TypeError, ValueError):
             take_profits = []
     else:
