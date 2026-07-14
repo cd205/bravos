@@ -35,6 +35,13 @@ _IGNORE_CODES = {2104, 2106, 2119, 2158, 2110}
 # Fatal codes — reconnect will not help; log ERROR and do not retry.
 _CRITICAL_NO_RETRY_CODES = {501, 507}
 
+# Order-scoped warning codes that accompany an ACCEPTED order — must NOT
+# be treated as a rejection. 399 fires with reqId==orderId immediately
+# before a real orderStatus=PreSubmitted for orders queued to market open
+# (observed 2026-07-09, HROW BUY 109). Add codes here ONLY with evidence
+# that they fire on a real orderId AND indicate acceptance, not rejection.
+_ORDER_WARNING_CODES = {399}
+
 # reqId used for reqAccountSummary — must not collide with order reqIds.
 REQ_ID_ACCOUNT_SUMMARY = 9001
 
@@ -218,7 +225,12 @@ class IBApp(EWrapper, EClient):
           1. _IGNORE_CODES      → DEBUG log, return
           2. _IMMEDIATE_RECONNECT_CODES → ERROR log, call _trigger_reconnect
           3. _CRITICAL_NO_RETRY_CODES  → CRITICAL log, do not reconnect
-          4. All others         → WARNING or ERROR log based on reqId
+          4. Order-scoped rejection: reqId registered in _order_status_events
+             and errorCode NOT in _ORDER_WARNING_CODES → write an IBKR_ERROR
+             result into the slot and wake the waiting executor thread (this
+             is how the executor learns of a rejection — orderStatus never
+             fires for a rejected order; see IMPROVEMENTS item 3).
+          5. All others         → WARNING or ERROR log based on reqId
         """
         if errorCode in _IGNORE_CODES:
             logger.debug("IBKR info %s (reqId=%s): %s", errorCode, reqId, errorString)
@@ -241,6 +253,23 @@ class IBApp(EWrapper, EClient):
                 reqId,
                 errorString,
             )
+            return
+
+        # Order-scoped rejection routing (IMPROVEMENTS item 3): IBKR rejections
+        # arrive here with reqId == orderId and orderStatus NEVER fires. Wake the
+        # waiting executor with a definitive answer instead of letting it time out
+        # and falsely record SUBMITTED. Warning-class codes (399) that accompany
+        # an accepted order are excluded — they precede a real orderStatus.
+        slot = self._order_status_events.get(reqId)
+        if slot is not None and errorCode not in _ORDER_WARNING_CODES:
+            logger.error(
+                "IBKR order error %s for order_id=%s: %s — recording as rejection",
+                errorCode, reqId, errorString,
+            )
+            slot["status"] = "IBKR_ERROR"
+            slot["code"] = errorCode
+            slot["message"] = errorString
+            slot["event"].set()
             return
 
         # All other errors: log at WARNING (system-level) or ERROR (request-level)
