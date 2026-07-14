@@ -13,12 +13,17 @@ Sequence:
   4. Fallback to signals.reference_price if no tick arrives
   5. Compute quantity via EXEC-01 formula (or sum-of-lots for 'close')
   6. Write orders row PENDING_SUBMISSION (D-08)
-  7. placeOrder + wait for orderStatus callback (3s)
-  8. Update orders row to SUBMITTED / REJECTED
+  7. placeOrder + wait for orderStatus/error callback (3s)
+  8. Update orders row to SUBMITTED / REJECTED / UNKNOWN
 
-Threading: ibapi callbacks (tickPrice, orderStatus) fire on the api thread and
-wake this thread via threading.Event registered in ibapp._tick_events /
-ibapp._order_status_events (slots installed by Plan 04-02 callbacks).
+Threading: ibapi callbacks (tickPrice, orderStatus, error) fire on the api
+thread and wake this thread via threading.Event registered in
+ibapp._tick_events / ibapp._order_status_events (slots installed by Plan
+04-02 callbacks). A rejection can arrive via error() (reqId == orderId,
+orderStatus never fires) as well as via orderStatus itself — see
+_resolve_db_status. SUBMITTED is only ever assigned when a real
+PreSubmitted/Submitted callback was observed; a genuine timeout (no
+orderStatus and no error callback) records UNKNOWN, never SUBMITTED.
 """
 import logging
 import threading
@@ -44,7 +49,10 @@ _ACTION_MAP = {
     "close": "SELL",
 }
 
-# IBKR orderStatus string → DB orders.status value
+# IBKR orderStatus string → DB orders.status value. SUBMITTED is only ever
+# assigned for a real PreSubmitted/Submitted callback (see _resolve_db_status
+# below) — an unrecognised or missing status is never silently mapped to
+# SUBMITTED. Status vocabulary: SUBMITTED / REJECTED / UNKNOWN.
 _STATUS_MAP = {
     "PreSubmitted": "SUBMITTED",
     "Submitted": "SUBMITTED",
@@ -54,6 +62,35 @@ _STATUS_MAP = {
 # Module-level singleton so _circuit_tripped latches across calls within the process.
 # run_ingestion.py schedules gate.reset() daily via this same instance (D-03/RISK-03).
 _gate = RiskGate()
+
+
+def _resolve_db_status(slot: dict, order_id) -> str:
+    """
+    Map a resolved _order_status_events slot to a DB orders.status value.
+
+    - {"status": "IBKR_ERROR"} -> REJECTED (IBKR rejected via error() callback)
+    - real IBKR status string   -> _STATUS_MAP (PreSubmitted/Submitted -> SUBMITTED,
+                                   Inactive -> REJECTED)
+    - None (event never fired)  -> UNKNOWN (order state unverified)
+
+    Never returns SUBMITTED unless a real PreSubmitted/Submitted callback
+    was observed. Logs at ERROR for REJECTED and UNKNOWN so both are alertable.
+    """
+    raw = slot.get("status")
+    if raw == "IBKR_ERROR":
+        logger.error(
+            "order_id=%s REJECTED by IBKR: code=%s message=%s",
+            order_id, slot.get("code"), slot.get("message"),
+        )
+        return "REJECTED"
+    if raw is None:
+        logger.error(
+            "order_id=%s status UNVERIFIED — no orderStatus and no error "
+            "callback within %ss; recording UNKNOWN. Check TWS manually.",
+            order_id, ORDER_STATUS_TIMEOUT,
+        )
+        return "UNKNOWN"
+    return _STATUS_MAP.get(raw, "UNKNOWN")
 
 
 # ── Public entry point ─────────────────────────────────────────────────────
@@ -286,8 +323,10 @@ def _submit_order(ibapp, signal_id: int, ticker: str, action: str, quantity: int
     Write the orders row, register the status event, call placeOrder, wait for the
     orderStatus callback, and update the DB row to the final status.
 
-    Returns the final DB status string ('SUBMITTED', 'REJECTED', or 'SUBMITTED'
-    when the callback times out — we assume the order is in flight).
+    Returns the final DB status string: 'SUBMITTED' only for a real
+    PreSubmitted/Submitted callback, 'REJECTED' for an Inactive callback or an
+    IBKR error() rejection, or 'UNKNOWN' when the callback genuinely times out
+    (order state unverified — never assumed SUBMITTED).
 
     Per D-08: the DB row exists in PENDING_SUBMISSION state BEFORE placeOrder is
     called. Per D-10: ibkr_order_id comes from ibapp.next_order_id, incremented
@@ -318,7 +357,6 @@ def _submit_order(ibapp, signal_id: int, ticker: str, action: str, quantity: int
     status_slot = {"event": threading.Event(), "status": None}
     ibapp._order_status_events[order_id] = status_slot
 
-    final_status_raw = None
     try:
         contract = _build_contract(ticker)
         order = _build_order(action, quantity)
@@ -326,15 +364,16 @@ def _submit_order(ibapp, signal_id: int, ticker: str, action: str, quantity: int
         got = status_slot["event"].wait(timeout=ORDER_STATUS_TIMEOUT)
         if not got:
             logger.warning(
-                "orderStatus callback timed out for order_id=%s — assuming SUBMITTED",
+                "orderStatus callback timed out for order_id=%s — status unverified",
                 order_id,
             )
-        final_status_raw = status_slot["status"]
     finally:
         ibapp._order_status_events.pop(order_id, None)
 
-    # 3. Map IBKR status → DB status and update the row
-    db_status = _STATUS_MAP.get(final_status_raw, "SUBMITTED")
+    # 3. Map slot result → DB status and update the row. status_slot is the
+    # same dict object stored in the map, so reading it after the pop above
+    # is safe.
+    db_status = _resolve_db_status(status_slot, order_id)
     with db_conn.cursor() as cur:
         cur.execute(
             "UPDATE orders SET status = %s WHERE id = %s",
@@ -480,7 +519,6 @@ def _submit_bracket_order(
     status_slot = {"event": threading.Event(), "status": None}
     ibapp._order_status_events[int(parent_ibkr_id)] = status_slot
 
-    final_status_raw = None
     try:
         # Submission order: parent → STP → TP[0..N-2] → TP[N-1] (transmit=True fires all)
         ibapp.placeOrder(int(parent_ibkr_id), contract, parent_order)
@@ -492,15 +530,14 @@ def _submit_bracket_order(
         got = status_slot["event"].wait(timeout=ORDER_STATUS_TIMEOUT)
         if not got:
             logger.warning(
-                "orderStatus callback timed out for bracket parent order_id=%s — assuming SUBMITTED",
+                "orderStatus callback timed out for bracket parent order_id=%s — status unverified",
                 parent_ibkr_id,
             )
-        final_status_raw = status_slot["status"]
     finally:
         ibapp._order_status_events.pop(int(parent_ibkr_id), None)
 
-    # 3. Map and update parent DB row (copy _submit_order pattern)
-    db_status = _STATUS_MAP.get(final_status_raw, "SUBMITTED")
+    # 3. Map slot result → DB status and update the parent row (copy _submit_order pattern)
+    db_status = _resolve_db_status(status_slot, parent_ibkr_id)
     with db_conn.cursor() as cur:
         cur.execute(
             "UPDATE orders SET status = %s WHERE ibkr_order_id = %s",
@@ -508,18 +545,19 @@ def _submit_bracket_order(
         )
     db_conn.commit()
 
-    # WR-02: Update child (STP + TP) rows from PENDING_SUBMISSION to SUBMITTED.
-    # Full per-child callback tracking is deferred, but leaving children in
-    # PENDING_SUBMISSION permanently causes monitoring queries to misrepresent
-    # the order lifecycle. Bulk-update all children after the parent resolves.
-    child_ibkr_ids = [stp_ibkr_id] + tp_ibkr_ids
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "UPDATE orders SET status = 'SUBMITTED' WHERE ibkr_order_id = ANY(%s)"
-            " AND status = 'PENDING_SUBMISSION'",
-            (child_ibkr_ids,),
-        )
-    db_conn.commit()
+    # WR-02: Update child (STP + TP) rows from PENDING_SUBMISSION to SUBMITTED —
+    # but ONLY when the parent itself is genuinely SUBMITTED. If the parent was
+    # REJECTED or UNKNOWN, the children must NOT be claimed as submitted; leave
+    # them in PENDING_SUBMISSION for operator review (T-6gz-01/02).
+    if db_status == "SUBMITTED":
+        child_ibkr_ids = [stp_ibkr_id] + tp_ibkr_ids
+        with db_conn.cursor() as cur:
+            cur.execute(
+                "UPDATE orders SET status = 'SUBMITTED' WHERE ibkr_order_id = ANY(%s)"
+                " AND status = 'PENDING_SUBMISSION'",
+                (child_ibkr_ids,),
+            )
+        db_conn.commit()
 
     return db_status
 
