@@ -326,6 +326,105 @@ def test_order_status_rejected(db_connection):
         assert cur.fetchone()[0] == "REJECTED"
 
 
+# ── IMPROVEMENTS item 3: honest status mapping (rejection / 399 / timeout) ──
+
+def test_order_rejected_via_error_callback(db_connection):
+    """A rejection delivered via error() (IBKR_ERROR slot write) -> REJECTED,
+    not SUBMITTED. Mirrors the real HROW error 10268 incident."""
+    from bravos.execution.executor import _submit_order
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO signals (post_url, post_title, ticker, action_type, weight_from, weight_to, confidence) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (f"http://test/{os.urandom(4).hex()}", "test", "HROW", "open", 0, 1, "high"),
+        )
+        signal_id = cur.fetchone()[0]
+    db_connection.commit()
+
+    order_id = int.from_bytes(os.urandom(3), "big") + 90000
+    mock_ibapp = MagicMock()
+    mock_ibapp.next_order_id = order_id
+    mock_ibapp._order_status_events = {}
+
+    def fire_ibkr_error(*args, **kwargs):
+        slot = mock_ibapp._order_status_events.get(order_id)
+        if slot is not None:
+            slot["status"] = "IBKR_ERROR"
+            slot["code"] = 10268
+            slot["message"] = "EtradeOnly not supported"
+            slot["event"].set()
+    mock_ibapp.placeOrder = MagicMock(side_effect=fire_ibkr_error)
+
+    final_status = _submit_order(mock_ibapp, signal_id, "HROW", "BUY", 109, db_connection)
+    assert final_status == "REJECTED"
+    with db_connection.cursor() as cur:
+        cur.execute("SELECT status FROM orders WHERE ibkr_order_id=%s", (order_id,))
+        assert cur.fetchone()[0] == "REJECTED"
+
+
+def test_order_399_then_submitted(db_connection):
+    """Error 399 (accepted-order warning) does not short-circuit — a real
+    Submitted callback that follows still resolves to SUBMITTED."""
+    from bravos.execution.executor import _submit_order
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO signals (post_url, post_title, ticker, action_type, weight_from, weight_to, confidence) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (f"http://test/{os.urandom(4).hex()}", "test", "AAPL", "open", 0, 1, "high"),
+        )
+        signal_id = cur.fetchone()[0]
+    db_connection.commit()
+
+    order_id = int.from_bytes(os.urandom(3), "big") + 91000
+    mock_ibapp = MagicMock()
+    mock_ibapp.next_order_id = order_id
+    mock_ibapp._order_status_events = {}
+
+    def fire_399_then_submitted(*args, **kwargs):
+        slot = mock_ibapp._order_status_events.get(order_id)
+        if slot is not None:
+            # Mirrors connection.py's allowlist skip: 399 is a no-op on the slot.
+            slot["status"] = "Submitted"
+            slot["event"].set()
+    mock_ibapp.placeOrder = MagicMock(side_effect=fire_399_then_submitted)
+
+    final_status = _submit_order(mock_ibapp, signal_id, "AAPL", "BUY", 10, db_connection)
+    assert final_status == "SUBMITTED"
+    with db_connection.cursor() as cur:
+        cur.execute("SELECT status FROM orders WHERE ibkr_order_id=%s", (order_id,))
+        assert cur.fetchone()[0] == "SUBMITTED"
+
+
+def test_order_pure_timeout_is_unknown(db_connection, monkeypatch):
+    """A genuine timeout (no orderStatus, no error callback) -> UNKNOWN, never
+    SUBMITTED. This is the exact bug this plan fixes."""
+    import bravos.execution.executor as executor_module
+    from bravos.execution.executor import _submit_order
+
+    monkeypatch.setattr(executor_module, "ORDER_STATUS_TIMEOUT", 0.2)
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "INSERT INTO signals (post_url, post_title, ticker, action_type, weight_from, weight_to, confidence) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (f"http://test/{os.urandom(4).hex()}", "test", "AAPL", "open", 0, 1, "high"),
+        )
+        signal_id = cur.fetchone()[0]
+    db_connection.commit()
+
+    order_id = int.from_bytes(os.urandom(3), "big") + 92000
+    mock_ibapp = MagicMock()
+    mock_ibapp.next_order_id = order_id
+    mock_ibapp._order_status_events = {}
+    mock_ibapp.placeOrder = MagicMock()  # never touches the slot
+
+    final_status = _submit_order(mock_ibapp, signal_id, "AAPL", "BUY", 10, db_connection)
+    assert final_status == "UNKNOWN"
+    with db_connection.cursor() as cur:
+        cur.execute("SELECT status FROM orders WHERE ibkr_order_id=%s", (order_id,))
+        assert cur.fetchone()[0] == "UNKNOWN"
+
+
 # Wave 0 additions — Phase 9 bracket order tests
 
 def _make_signal(db_conn, ticker="AAPL", action_type="open",
@@ -637,3 +736,113 @@ def test_bracket_close_signal_routes_bare(db_connection):
         execute_signal(signal_id, db_connection)
 
     mock_bracket.assert_not_called()
+
+
+# ── IMPROVEMENTS item 3: honest status mapping — bracket path ──────────────
+
+@pytest.mark.integration
+def test_bracket_rejected_via_error_callback(db_connection):
+    """Bracket parent rejection via error() (IBKR_ERROR slot write) -> REJECTED;
+    STP/TP children stay PENDING_SUBMISSION (not falsely claimed SUBMITTED)."""
+    from bravos.execution.executor import _submit_bracket_order
+
+    signal_id = _make_signal(db_connection, take_profits=[320.0, 350.0])
+    mock_ibapp = MagicMock()
+    start_id = int.from_bytes(os.urandom(3), "big") + 100000
+    mock_ibapp.next_order_id = start_id
+    mock_ibapp._order_status_events = {}
+
+    def fire_ibkr_error(order_id, contract, order, *args, **kwargs):
+        if order_id == start_id:
+            slot = mock_ibapp._order_status_events.get(order_id)
+            if slot is not None:
+                slot["status"] = "IBKR_ERROR"
+                slot["code"] = 321
+                slot["message"] = "Read-Only API"
+                slot["event"].set()
+    mock_ibapp.placeOrder = MagicMock(side_effect=fire_ibkr_error)
+
+    final_status = _submit_bracket_order(
+        mock_ibapp, signal_id, "AAPL", "BUY", 20,
+        257.0, [320.0, 350.0], db_connection,
+    )
+    assert final_status == "REJECTED"
+    with db_connection.cursor() as cur:
+        cur.execute("SELECT status FROM orders WHERE ibkr_order_id=%s", (start_id,))
+        assert cur.fetchone()[0] == "REJECTED"
+        cur.execute(
+            "SELECT status FROM orders WHERE ibkr_order_id = ANY(%s)",
+            ([start_id + 1, start_id + 2, start_id + 3],),
+        )
+        child_statuses = [row[0] for row in cur.fetchall()]
+    assert all(s == "PENDING_SUBMISSION" for s in child_statuses)
+
+
+@pytest.mark.integration
+def test_bracket_399_then_submitted(db_connection):
+    """Bracket parent: error 399 does not short-circuit — a real Submitted
+    callback that follows still resolves to SUBMITTED, and children are
+    bulk-updated to SUBMITTED."""
+    from bravos.execution.executor import _submit_bracket_order
+
+    signal_id = _make_signal(db_connection, take_profits=[320.0, 350.0])
+    mock_ibapp = MagicMock()
+    start_id = int.from_bytes(os.urandom(3), "big") + 110000
+    mock_ibapp.next_order_id = start_id
+    mock_ibapp._order_status_events = {}
+
+    def fire_399_then_submitted(order_id, contract, order, *args, **kwargs):
+        if order_id == start_id:
+            slot = mock_ibapp._order_status_events.get(order_id)
+            if slot is not None:
+                # Mirrors connection.py's allowlist skip: 399 is a no-op on the slot.
+                slot["status"] = "Submitted"
+                slot["event"].set()
+    mock_ibapp.placeOrder = MagicMock(side_effect=fire_399_then_submitted)
+
+    final_status = _submit_bracket_order(
+        mock_ibapp, signal_id, "AAPL", "BUY", 20,
+        257.0, [320.0, 350.0], db_connection,
+    )
+    assert final_status == "SUBMITTED"
+    with db_connection.cursor() as cur:
+        cur.execute("SELECT status FROM orders WHERE ibkr_order_id=%s", (start_id,))
+        assert cur.fetchone()[0] == "SUBMITTED"
+        cur.execute(
+            "SELECT status FROM orders WHERE ibkr_order_id = ANY(%s)",
+            ([start_id + 1, start_id + 2, start_id + 3],),
+        )
+        child_statuses = [row[0] for row in cur.fetchall()]
+    assert all(s == "SUBMITTED" for s in child_statuses)
+
+
+@pytest.mark.integration
+def test_bracket_pure_timeout_is_unknown(db_connection, monkeypatch):
+    """Bracket parent: a genuine timeout (no orderStatus, no error callback)
+    -> UNKNOWN, never SUBMITTED; children stay PENDING_SUBMISSION."""
+    import bravos.execution.executor as executor_module
+    from bravos.execution.executor import _submit_bracket_order
+
+    monkeypatch.setattr(executor_module, "ORDER_STATUS_TIMEOUT", 0.2)
+
+    signal_id = _make_signal(db_connection, take_profits=[320.0, 350.0])
+    mock_ibapp = MagicMock()
+    start_id = int.from_bytes(os.urandom(3), "big") + 120000
+    mock_ibapp.next_order_id = start_id
+    mock_ibapp._order_status_events = {}
+    mock_ibapp.placeOrder = MagicMock()  # never touches any slot
+
+    final_status = _submit_bracket_order(
+        mock_ibapp, signal_id, "AAPL", "BUY", 20,
+        257.0, [320.0, 350.0], db_connection,
+    )
+    assert final_status == "UNKNOWN"
+    with db_connection.cursor() as cur:
+        cur.execute("SELECT status FROM orders WHERE ibkr_order_id=%s", (start_id,))
+        assert cur.fetchone()[0] == "UNKNOWN"
+        cur.execute(
+            "SELECT status FROM orders WHERE ibkr_order_id = ANY(%s)",
+            ([start_id + 1, start_id + 2, start_id + 3],),
+        )
+        child_statuses = [row[0] for row in cur.fetchall()]
+    assert all(s == "PENDING_SUBMISSION" for s in child_statuses)

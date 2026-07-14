@@ -162,6 +162,50 @@ def test_error_2104_is_ignored(monkeypatch):
     assert not reconnect_called.is_set()
 
 
+# ── IMPROVEMENTS item 3: order-scoped error() rejection routing ────────────
+
+def test_error_order_scoped_writes_ibkr_error():
+    """error() with a registered slot and a non-allowlisted code writes an
+    IBKR_ERROR result into the slot and sets its event — this is how the
+    executor learns of a rejection when orderStatus never fires."""
+    from bravos.broker.connection import IBApp
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+
+    app._order_status_events[1001] = {"event": threading.Event(), "status": None}
+    app.error(reqId=1001, errorCode=321, errorString="Read-Only API")
+
+    slot = app._order_status_events[1001]
+    assert slot["status"] == "IBKR_ERROR"
+    assert slot["code"] == 321
+    assert slot["message"] == "Read-Only API"
+    assert slot["event"].is_set()
+
+
+def test_error_399_does_not_reject_accepted_order():
+    """error(399) — accepted-order warning — must NOT write the slot or set
+    its event; the real PreSubmitted/Submitted callback still resolves it."""
+    from bravos.broker.connection import IBApp
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+
+    app._order_status_events[1002] = {"event": threading.Event(), "status": None}
+    app.error(reqId=1002, errorCode=399, errorString="Warning: your order will not be placed at the exchange until 09:30:00 ET; queued")
+
+    slot = app._order_status_events[1002]
+    assert slot["status"] is None
+    assert not slot["event"].is_set()
+
+
+def test_error_unregistered_reqid_is_safe():
+    """error() with a reqId not in _order_status_events does not raise and
+    does not create a new slot."""
+    from bravos.broker.connection import IBApp
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+
+    app.error(reqId=99999, errorCode=321, errorString="x")
+
+    assert 99999 not in app._order_status_events
+
+
 def test_trigger_reconnect_does_not_spawn_duplicate_thread(monkeypatch):
     """_trigger_reconnect is a no-op if _reconnecting is already True (guard against races)."""
     from bravos.broker.connection import IBApp
