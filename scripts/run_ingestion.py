@@ -124,6 +124,15 @@ def _connect_ibkr(ibapp: IBApp) -> bool:
         logger.exception("Failed to open DB connection for fill callbacks")
         ibapp._db_conn = None
 
+    # Fill replay (IMPROVEMENTS item 16): now that _db_conn is set, request today's
+    # executions so fills that landed while disconnected / under another clientId are
+    # captured via execDetails. MUST come after _db_conn assignment above, else
+    # execDetails drops them at its "_db_conn not set" guard.
+    try:
+        ibapp.replay_todays_fills()
+    except Exception:
+        logger.exception("Fill replay on connect failed — continuing")
+
     if ibapp._account_name:
         try:
             ibapp.reqPnL(REQ_ID_PNL, ibapp._account_name, "")

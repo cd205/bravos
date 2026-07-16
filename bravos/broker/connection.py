@@ -722,6 +722,14 @@ class IBApp(EWrapper, EClient):
             logger.exception("Reconnect: failed to open DB connection for fill callbacks")
             self._db_conn = None
 
+        # Fill replay (IMPROVEMENTS item 16) — mirrors run_ingestion._connect_ibkr. Runs after
+        # _db_conn is set so replayed execDetails callbacks are not dropped. Kept in sync
+        # manually (see Session 4a / item 7 to deduplicate).
+        try:
+            self.replay_todays_fills()
+        except Exception:
+            logger.exception("Reconnect: fill replay failed — continuing")
+
         if self._account_name:
             try:
                 self.reqPnL(REQ_ID_PNL, self._account_name, "")
