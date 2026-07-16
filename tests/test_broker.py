@@ -401,3 +401,121 @@ def test_reconcile_no_db_write_on_mismatch(db_connection):
         after = cur.fetchone()[0]
 
     assert after == before  # no rows written
+
+
+# ── Session 1b: fill-replay safety (IMPROVEMENTS item 16) ──────────────────
+
+def test_replay_duplicate_exec_id_no_double_dispatch():
+    """A replayed fill whose exec_id is already recorded is a true no-op —
+    the RETURNING id fetch is None (ON CONFLICT), so no lot is dispatched."""
+    from unittest.mock import MagicMock, patch
+    from bravos.broker import connection
+
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+    # order lookup: found; RETURNING id: no-op (already recorded)
+    mock_cur.fetchone.side_effect = [(42, "BUY"), None]
+
+    execution = MagicMock()
+    execution.execId = "EXEC_DUP"
+    execution.orderId = 1000
+    execution.side = "BOT"
+    execution.shares = 5
+    execution.price = 150.0
+
+    contract = MagicMock()
+    contract.symbol = "AAPL"
+
+    with patch("bravos.execution.positions.open_lot") as m_open, \
+         patch("bravos.execution.positions.partial_close_lot") as m_close:
+        connection._handle_exec_details(mock_conn, execution, contract)
+
+    m_open.assert_not_called()
+    m_close.assert_not_called()
+
+    # sanity: INSERT still ran (ON CONFLICT retained)
+    sqls = [str(c[0][0]) for c in mock_cur.execute.call_args_list]
+    assert any("ON CONFLICT (exec_id) DO NOTHING" in s for s in sqls)
+
+
+def test_replay_unknown_order_id_skipped():
+    """An execDetails callback for an ibkr_order_id with no orders row is
+    logged and skipped — it must not raise or dispatch a lot."""
+    from unittest.mock import MagicMock, patch
+    from bravos.broker import connection
+
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+    mock_cur.fetchone.return_value = None  # no orders row
+
+    execution = MagicMock()
+    execution.execId = "EXEC_UNKNOWN"
+    execution.orderId = 9999
+    execution.side = "BOT"
+    execution.shares = 5
+    execution.price = 150.0
+
+    contract = MagicMock()
+    contract.symbol = "AAPL"
+
+    with patch("bravos.execution.positions.open_lot") as m_open:
+        connection._handle_exec_details(mock_conn, execution, contract)  # must not raise
+
+    m_open.assert_not_called()
+
+
+def test_replay_fresh_fill_dispatches_once():
+    """A fresh, unseen fill for a known order inserts one execution row
+    (RETURNING id is non-None) and dispatches exactly one lot."""
+    from unittest.mock import MagicMock, patch
+    from bravos.broker import connection
+
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+    # order lookup: found; RETURNING id: fresh insert (id=7)
+    mock_cur.fetchone.side_effect = [(42, "BUY"), (7,)]
+
+    execution = MagicMock()
+    execution.execId = "EXEC_FRESH"
+    execution.orderId = 1000
+    execution.side = "BOT"
+    execution.shares = 5
+    execution.price = 150.0
+
+    contract = MagicMock()
+    contract.symbol = "AAPL"
+
+    with patch("bravos.execution.positions.open_lot") as m_open:
+        connection._handle_exec_details(mock_conn, execution, contract)
+
+    m_open.assert_called_once_with("AAPL", 5, 150.0, mock_conn)
+
+
+def test_replay_issued_after_db_conn():
+    """replay_todays_fills() issues reqExecutions with REQ_ID_EXECUTIONS and a
+    same-day ExecutionFilter when connected + _db_conn set; is a no-op when
+    _db_conn is None (fills would otherwise be dropped by execDetails)."""
+    from unittest.mock import MagicMock
+    from datetime import datetime
+    from bravos.broker.connection import IBApp, REQ_ID_EXECUTIONS
+
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+    app._connected.set()  # force is_connected() True
+    app._db_conn = MagicMock()  # _db_conn present
+
+    captured = {}
+    app.reqExecutions = lambda reqId, filt: captured.update(reqId=reqId, time=filt.time)
+
+    app.replay_todays_fills()
+
+    assert captured["reqId"] == REQ_ID_EXECUTIONS
+    assert captured["time"].startswith(datetime.now().strftime("%Y%m%d"))
+
+    # no-op when _db_conn is None
+    app._db_conn = None
+    captured.clear()
+    app.replay_todays_fills()
+    assert captured == {}, "replay must be a no-op when _db_conn is unset"
