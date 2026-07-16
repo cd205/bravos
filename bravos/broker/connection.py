@@ -13,8 +13,10 @@ Plans:
 import logging
 import threading
 import time
+from datetime import datetime
 
 from ibapi.client import EClient
+from ibapi.execution import ExecutionFilter
 from ibapi.wrapper import EWrapper
 
 from bravos.config import settings
@@ -49,6 +51,10 @@ REQ_ID_ACCOUNT_SUMMARY = 9001
 # intentionally (kept in sync manually) — must not collide with
 # REQ_ID_ACCOUNT_SUMMARY=9001 above.
 REQ_ID_PNL = 9002
+
+# reqId used for reqExecutions on (re)connect fill-replay (IMPROVEMENTS item 16).
+# Must not collide with 9001/9002 above or market-data reqIds (2000+).
+REQ_ID_EXECUTIONS = 9004
 
 # How often (seconds) to send reqCurrentTime to IB Gateway as a keepalive.
 HEARTBEAT_INTERVAL = 60
@@ -616,6 +622,47 @@ class IBApp(EWrapper, EClient):
             reqId,
         )
 
+    def replay_todays_fills(self) -> None:
+        """
+        Request today's executions from IBKR so fills that landed while the
+        daemon was disconnected (nightly Gateway restart, bravos-pause, crash
+        windows) or placed under a different clientId are captured via the
+        existing idempotent execDetails -> _handle_exec_details path
+        (IMPROVEMENTS item 16).
+
+        The ExecutionFilter is deliberately scoped to TODAY (time set to
+        today's date at 00:00:00 local) — not left empty. This ensures stale
+        fills from prior days (e.g. the manually-backfilled HROW Jul-9 lot,
+        whose exec_id was never recorded in the executions table) can never
+        be re-dispatched into a duplicate position_lots row.
+
+        Must be called AFTER self._db_conn is set — otherwise replayed
+        execDetails callbacks are dropped at the "_db_conn not set" guard.
+        No-op (with a warning log) if not connected or _db_conn is unset.
+        Never raises — a failure here must not abort the (re)connect, since
+        the socket is already up by the time this runs.
+        """
+        if not self.is_connected():
+            logger.warning("replay_todays_fills: not connected — skipping")
+            return
+        if self._db_conn is None:
+            logger.warning(
+                "replay_todays_fills: _db_conn not set — skipping "
+                "(replayed fills would be dropped by execDetails)"
+            )
+            return
+
+        try:
+            filt = ExecutionFilter()
+            filt.time = datetime.now().strftime("%Y%m%d-00:00:00")
+            self.reqExecutions(REQ_ID_EXECUTIONS, filt)
+            logger.info(
+                "reqExecutions issued (same-day fill replay, filter time=%s)",
+                filt.time,
+            )
+        except Exception:
+            logger.exception("replay_todays_fills failed")
+
     # ── Reconnect state refresh ─────────────────────────────────────────────
 
     def _open_short_lived_db_conn(self):
@@ -674,6 +721,14 @@ class IBApp(EWrapper, EClient):
         except Exception:
             logger.exception("Reconnect: failed to open DB connection for fill callbacks")
             self._db_conn = None
+
+        # Fill replay (IMPROVEMENTS item 16) — mirrors run_ingestion._connect_ibkr. Runs after
+        # _db_conn is set so replayed execDetails callbacks are not dropped. Kept in sync
+        # manually (see Session 4a / item 7 to deduplicate).
+        try:
+            self.replay_todays_fills()
+        except Exception:
+            logger.exception("Reconnect: fill replay failed — continuing")
 
         if self._account_name:
             try:
@@ -871,11 +926,26 @@ def _handle_exec_details(db_conn, execution, contract) -> None:
         cur.execute(
             "INSERT INTO executions (order_id, exec_id, shares, price, exec_time) "
             "VALUES (%s, %s, %s, %s, NOW()) "
-            "ON CONFLICT (exec_id) DO NOTHING",
+            "ON CONFLICT (exec_id) DO NOTHING "
+            "RETURNING id",
             (db_order_id, execution.execId, int(execution.shares),
              float(execution.price)),
         )
+        inserted = cur.fetchone()
     db_conn.commit()
+
+    # Replay-safety gate (IMPROVEMENTS item 16): the INSERT above no-ops on
+    # ON CONFLICT (exec_id already recorded), but without this guard the lot
+    # dispatch below would still run unconditionally on every replay,
+    # double-counting the position on each reconnect. Only dispatch when the
+    # RETURNING id fetch proves a row was actually inserted.
+    if inserted is None:
+        logger.info(
+            "execDetails: replay no-op — exec_id=%s already recorded, "
+            "skipping lot dispatch",
+            execution.execId,
+        )
+        return
 
     # Deferred import to avoid circular dependency
     # (bravos.execution.positions has no IBKR dependency, so the import
