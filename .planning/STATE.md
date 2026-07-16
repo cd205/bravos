@@ -120,10 +120,11 @@ None yet.
 | 260708-9az | Fix IBKR error 10268 (clear eTradeOnly/firmQuoteOnly on all orders) | 2026-07-08 | e2f1f74 | | [260708-9az](./quick/260708-9az-fix-ibkr-error-10268-ibapi-9-81-order-de/) |
 | 260710-7bi | Session 0b: test-DB isolation guard — tests can never write to production bravos_trading | 2026-07-10 | 25b761d | | [260710-7bi](./quick/260710-7bi-session-0b-from-planning-implementation-/) |
 | 260714-6gz | Session 1a: rejection routing + honest order statuses (IMPROVEMENTS.md item 3) | 2026-07-14 | 001e94e | Needs Review | [260714-6gz](./quick/260714-6gz-session-1a-from-planning-implementation-/) |
+| 260716-7dx | Session 1b: fill replay on connect via reqExecutions + double-count gating (IMPROVEMENTS.md item 16) | 2026-07-16 | c0e5fc8 | Verified | [260716-7dx](./quick/260716-7dx-session-1b-from-planning-implementation-/) |
 
 ## Session Continuity
 
-Last activity: 2026-07-14 - Completed quick task 260714-6gz: rejection routing + honest order statuses (IMPLEMENTATION_PLAN.md Session 1a)
+Last activity: 2026-07-16 - Completed quick task 260716-7dx: fill replay on connect (IMPLEMENTATION_PLAN.md Session 1b)
 Last session: 2026-06-01T05:11:23.989Z
 Stopped at: Phase 9 context gathered
 Resume file: .planning/phases/09-bracket-orders/09-CONTEXT.md
