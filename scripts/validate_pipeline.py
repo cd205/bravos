@@ -31,6 +31,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import bravos.broker.connection as broker_module
+from bravos import runtime
 from bravos.broker.connection import IBApp
 from bravos.config import settings
 from bravos.db import get_connection
@@ -212,6 +213,8 @@ def run_startup() -> tuple:
         port=settings.get_ibkr_port(),
         client_id=settings.IBKR_CLIENT_ID,
     )
+    # mirror write — remove with the connection.py alias
+    runtime.ibapp = _ibapp
     broker_module.ibapp = _ibapp
 
     # Step 2: Connect (30s timeout)
@@ -319,8 +322,8 @@ def main():
     # Register SIGTERM/SIGINT handlers (copied from run_ingestion.py lines 127–129).
     def handle_shutdown(signum, frame):
         logger.info("Received signal %s — initiating graceful shutdown", signum)
-        if broker_module.ibapp is not None:
-            broker_module.ibapp.stop()
+        if runtime.ibapp is not None:
+            runtime.ibapp.stop()
         scraper.shutdown()
         sys.exit(0)
 
@@ -419,8 +422,8 @@ def main():
         except Exception:
             logger.exception("scraper.shutdown() raised")
         try:
-            if broker_module.ibapp is not None:
-                broker_module.ibapp.stop()
+            if runtime.ibapp is not None:
+                runtime.ibapp.stop()
         except Exception:
             logger.exception("ibapp.stop() raised")
         try:

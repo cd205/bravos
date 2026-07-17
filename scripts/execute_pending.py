@@ -15,6 +15,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import bravos.broker.connection as broker_module
+from bravos import runtime
 from bravos.broker.connection import IBApp
 from bravos.config import settings
 from bravos.db import get_connection
@@ -83,6 +84,8 @@ def main():
         port=settings.get_ibkr_port(),
         client_id=2,  # distinct client_id from daemon (client_id=1)
     )
+    # mirror write — remove with the connection.py alias
+    runtime.ibapp = ibapp
     broker_module.ibapp = ibapp
     connected = ibapp.connect_and_run(timeout=30)
     if not connected:

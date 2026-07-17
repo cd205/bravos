@@ -44,6 +44,7 @@ from selenium.common.exceptions import WebDriverException
 from urllib3.exceptions import MaxRetryError
 
 import bravos.broker.connection as broker_module
+from bravos import runtime
 from bravos.broker.connection import IBApp
 from bravos.config import settings
 from bravos.config.settings import SCRAPE_INTERVAL_SECONDS
@@ -150,9 +151,9 @@ def handle_pause(signum, frame):
         return
     _ibkr_paused = True
     logger.info("IBKR PAUSED — disconnecting ibapi so TWS can connect (run 'bravos-resume' when done)")
-    if broker_module.ibapp is not None:
+    if runtime.ibapp is not None:
         try:
-            broker_module.ibapp.stop()
+            runtime.ibapp.stop()
         except Exception:
             logger.warning("Error stopping ibapp during pause", exc_info=True)
 
@@ -171,6 +172,8 @@ def handle_resume(signum, frame):
         port=settings.get_ibkr_port(),
         client_id=settings.IBKR_CLIENT_ID,
     )
+    # mirror write — remove with the connection.py alias
+    runtime.ibapp = _ibapp
     broker_module.ibapp = _ibapp
     connected = _connect_ibkr(_ibapp)
 
@@ -336,11 +339,11 @@ def run_cycle():
     # Piggybacks on the scrape cycle: every SCRAPE_INTERVAL_SECONDS, fetch
     # current IBKR positions, snapshot them, and log WARNING on any mismatch
     # against open lots in position_lots. Never auto-corrects (D-09).
-    if broker_module.ibapp is not None and broker_module.ibapp.is_connected():
+    if runtime.ibapp is not None and runtime.ibapp.is_connected():
         try:
             _recon_db_conn = _get_db_connection()
             try:
-                broker_module.ibapp.run_periodic_reconciliation(_recon_db_conn)
+                runtime.ibapp.run_periodic_reconciliation(_recon_db_conn)
             finally:
                 _recon_db_conn.close()
         except Exception:
@@ -452,6 +455,8 @@ def main():
         port=settings.get_ibkr_port(),
         client_id=settings.IBKR_CLIENT_ID,
     )
+    # mirror write — remove with the connection.py alias
+    runtime.ibapp = _ibapp
     broker_module.ibapp = _ibapp
 
     if _connect_ibkr(_ibapp):
@@ -514,9 +519,9 @@ def main():
 
     # Graceful cleanup
     logger.info("Shutting down — closing Chrome driver")
-    if broker_module.ibapp is not None:
+    if runtime.ibapp is not None:
         logger.info("Stopping IBKR connection...")
-        broker_module.ibapp.stop()
+        runtime.ibapp.stop()
     _scraper.shutdown()
     logger.info("Ingestion daemon stopped")
 
