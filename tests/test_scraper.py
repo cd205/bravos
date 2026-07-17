@@ -149,3 +149,61 @@ def test_process_alert_executes_when_not_paused(monkeypatch):
         s.process_alert("https://x.com/p/2")
     mock_exec.assert_called_once()
     assert mock_exec.call_args[0][0] == 124
+
+
+# ── Session 2c: process_alert explicit result contract (IMPROVEMENTS.md item 17) ──
+
+def test_process_alert_returns_duplicate_on_dedup():
+    """_store_signal returning is_new=False -> 'duplicate', no execute_signal touch."""
+    from bravos.ingestion.scraper import BravosScraper
+    s = BravosScraper()
+    s.driver = MagicMock()
+    with patch.object(s, "_check_session", return_value=True), \
+         patch.object(s, "fetch_post", return_value={"title": "t", "url": "u", "raw_html": "", "text": ""}), \
+         patch.object(s, "_store_signal", return_value=(55, False)), \
+         patch("bravos.ingestion.scraper.parse_signal", return_value={"confidence": "high", "ticker": "EME"}), \
+         patch("bravos.notifications.notifier.record_parse_outcome"), \
+         patch("bravos.execution.executor.execute_signal") as mock_exec:
+        result = s.process_alert("https://x.com/dup/")
+    assert result == "duplicate"
+    mock_exec.assert_not_called()
+
+
+def test_process_alert_returns_stored_low_confidence_no_execution():
+    """New row, low confidence -> 'stored' even though execute_signal is never called."""
+    from bravos.ingestion.scraper import BravosScraper
+    s = BravosScraper()
+    s.driver = MagicMock()
+    with patch.object(s, "_check_session", return_value=True), \
+         patch.object(s, "fetch_post", return_value={"title": "t", "url": "u", "raw_html": "", "text": ""}), \
+         patch.object(s, "_store_signal", return_value=(56, True)), \
+         patch("bravos.ingestion.scraper.parse_signal", return_value={"confidence": "low", "ticker": "EME"}), \
+         patch("bravos.notifications.notifier.record_parse_outcome"), \
+         patch("bravos.execution.executor.execute_signal") as mock_exec:
+        result = s.process_alert("https://x.com/low/")
+    assert result == "stored"
+    mock_exec.assert_not_called()
+
+
+def test_process_alert_returns_failed_on_fetch_raise():
+    """fetch_post raising -> 'failed', never propagates."""
+    from bravos.ingestion.scraper import BravosScraper
+    s = BravosScraper()
+    s.driver = MagicMock()
+    with patch.object(s, "_check_session", return_value=True), \
+         patch.object(s, "fetch_post", side_effect=RuntimeError("boom")):
+        result = s.process_alert("https://x.com/err/")
+    assert result == "failed"
+
+
+def test_process_alert_returns_failed_on_reauth_failure():
+    """Session expired and re-login fails -> 'failed', fetch_post never called."""
+    from bravos.ingestion.scraper import BravosScraper
+    s = BravosScraper()
+    s.driver = MagicMock()
+    with patch.object(s, "_check_session", return_value=False), \
+         patch.object(s, "_login", return_value=False), \
+         patch.object(s, "fetch_post") as mock_fetch:
+        result = s.process_alert("https://x.com/reauth-fail/")
+    assert result == "failed"
+    mock_fetch.assert_not_called()

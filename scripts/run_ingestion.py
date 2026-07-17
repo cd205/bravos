@@ -352,6 +352,28 @@ def run_cycle():
         )
 
 
+def _handle_alert_url(url: str) -> str:
+    """Map process_alert's result to the socket reply. Returns 'OK' or 'ERR <reason>'.
+
+    Session 2c (IMPROVEMENTS.md item 17): honest replies. OK only for a
+    genuine store or known duplicate; ERR for anything else, including a
+    defensive None or an unexpected raise (process_alert itself should never
+    raise post-Session-2c, but this stays honest either way).
+    """
+    if _scraper is None:
+        logger.warning("Alert socket: scraper not ready, dropping url=%s", url)
+        return "ERR scraper not ready"
+    try:
+        result = _scraper.process_alert(url)
+    except Exception as exc:  # process_alert shouldn't raise now, but stay honest
+        logger.exception("process_alert raised for url=%s", url)
+        return f"ERR {exc}"
+    if result in ("stored", "duplicate"):
+        return "OK"
+    logger.error("Alert dispatch failed for url=%s: process_alert -> %r", url, result)
+    return f"ERR process_alert={result}"
+
+
 def _run_alert_socket_server():
     """Listen on a Unix domain socket for alert URLs from the Gmail poller.
 
@@ -392,16 +414,8 @@ def _run_alert_socket_server():
             url = data.decode("utf-8", errors="replace").strip()
             if url:
                 logger.info("Alert socket received url=%s", url)
-                if _scraper is not None:
-                    try:
-                        _scraper.process_alert(url)
-                        conn.sendall(b"OK\n")
-                    except Exception as exc:
-                        logger.exception("process_alert failed for url=%s", url)
-                        conn.sendall(f"ERR {exc}\n".encode())
-                else:
-                    logger.warning("Alert socket: scraper not ready, dropping url=%s", url)
-                    conn.sendall(b"ERR scraper not ready\n")
+                reply = _handle_alert_url(url)
+                conn.sendall(f"{reply}\n".encode())
         except Exception:
             logger.exception("Alert socket handler error")
         finally:

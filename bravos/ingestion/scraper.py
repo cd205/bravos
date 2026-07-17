@@ -281,64 +281,91 @@ class BravosScraper:
             conn.close()
         return (row[0] if row else None, True)
 
-    @catch_cycle_exceptions
-    def process_alert(self, url: str):
+    def process_alert(self, url: str) -> str:
         """Fetch a post URL, parse, and store. Called by the Gmail poller per alert email.
 
         Ensures session is valid before fetching. Dedup handled by DB ON CONFLICT.
+
+        Contract (Session 2c, IMPROVEMENTS.md item 17): the return value IS the
+        outcome — "stored", "duplicate", or "failed". Never returns None, never
+        raises. The @catch_cycle_exceptions decorator used to swallow every
+        exception here and return None either way; that made the caller (the
+        alert socket handler) unable to tell success from failure. The decorator
+        stays on run_cycle (Chrome-crash self-heal) but is removed here — this
+        method now owns its own try/except so the truth escapes instead.
         """
-        if not self._check_session():
-            logger.warning("Session expired — re-authenticating (per D-03)")
-            if not self._login():
-                logger.critical("Re-auth failed after %d attempts — skipping alert", settings.MAX_REAUTH_ATTEMPTS)
-                return
+        try:
+            if not self._check_session():
+                logger.warning("Session expired — re-authenticating (per D-03)")
+                if not self._login():
+                    logger.critical("Re-auth failed after %d attempts — skipping alert", settings.MAX_REAUTH_ATTEMPTS)
+                    return "failed"
 
-        content = self.fetch_post(url)
-        parsed = parse_signal(content["title"], content["text"])
-        signal_data = {
-            "post_url": url,
-            "post_title": content["title"],
-            "raw_html": content["raw_html"],
-            **parsed,
-        }
-        signal_id, is_new = self._store_signal(signal_data)
-        logger.info("Processed: %s -> ticker=%s action=%s confidence=%s signal_id=%s is_new=%s",
-                     content["title"][:60], parsed.get("ticker"),
-                     parsed.get("action_type"), parsed.get("confidence"), signal_id, is_new)
+            content = self.fetch_post(url)
+            parsed = parse_signal(content["title"], content["text"])
+            signal_data = {
+                "post_url": url,
+                "post_title": content["title"],
+                "raw_html": content["raw_html"],
+                **parsed,
+            }
+            signal_id, is_new = self._store_signal(signal_data)
+            logger.info("Processed: %s -> ticker=%s action=%s confidence=%s signal_id=%s is_new=%s",
+                         content["title"][:60], parsed.get("ticker"),
+                         parsed.get("action_type"), parsed.get("confidence"), signal_id, is_new)
 
-        # Phase 7: parse failure spike tracking (D-03, NOTF-02). Duplicates
-        # (signal_id is None) are not counted — only genuinely parsed signals.
-        if signal_id is not None:
+            if is_new is False:
+                # Dedup path — URL already existed in the DB. Not a failure.
+                return "duplicate"
+
+            if signal_id is None:
+                # Edge case: is_new True but no id (unexpected _store_signal
+                # oddity). Nothing reliably stored — log and let the poller retry.
+                logger.warning(
+                    "process_alert: is_new=True but signal_id is None for url=%s — treating as failed",
+                    url,
+                )
+                return "failed"
+
+            # Phase 7: parse failure spike tracking (D-03, NOTF-02). Duplicates
+            # are not counted — only genuinely parsed new signals reach here.
             try:
                 from bravos.notifications.notifier import record_parse_outcome
                 record_parse_outcome(parsed)
             except Exception:
                 logger.warning("record_parse_outcome failed — continuing", exc_info=True)
 
-        # Phase 4 D-12: route stored signal to the order path.
-        # CR-01: Only route NEW inserts to execute_signal. is_new=False means this
-        # URL was already in the DB (duplicate from crash-recovery, scheduler overlap,
-        # or manual retry). Re-routing a duplicate would place a second order for the
-        # same signal — no uniqueness constraint on (signal_id) in orders table prevents it.
-        # signal_id may still be None if the DB lookup itself failed (is_new=False case).
-        if is_new and signal_id is not None and parsed.get("confidence") == "high":
-            # Check if the IBKR connection is paused (USR1 received, waiting for USR2).
-            # NEW — Session 2b: pause state lives in bravos.runtime (always importable,
-            # no guard needed; the silent not-paused fallback is gone).
-            if runtime.ibkr_paused:
-                runtime.paused_signal_queue.put(signal_id)
-                logger.info(
-                    "IBKR paused — signal_id=%s queued for execution on resume", signal_id
-                )
-            else:
-                from bravos.execution.executor import execute_signal
-                exec_conn = get_connection()
-                try:
-                    execute_signal(signal_id, exec_conn)
-                except Exception:
-                    logger.exception("execute_signal raised for signal_id=%s — continuing", signal_id)
-                finally:
-                    exec_conn.close()
+            # Phase 4 D-12: route stored signal to the order path.
+            # CR-01: Only route NEW inserts to execute_signal — is_new=False (the
+            # duplicate case) already returned above, so we know this is a fresh
+            # insert. Re-routing a duplicate would place a second order for the
+            # same signal — no uniqueness constraint on (signal_id) in orders
+            # table prevents it.
+            if parsed.get("confidence") == "high":
+                # Check if the IBKR connection is paused (USR1 received, waiting for USR2).
+                # Session 2b: pause state lives in bravos.runtime (always importable,
+                # no guard needed; the silent not-paused fallback is gone).
+                if runtime.ibkr_paused:
+                    runtime.paused_signal_queue.put(signal_id)
+                    logger.info(
+                        "IBKR paused — signal_id=%s queued for execution on resume", signal_id
+                    )
+                else:
+                    from bravos.execution.executor import execute_signal
+                    exec_conn = get_connection()
+                    try:
+                        execute_signal(signal_id, exec_conn)
+                    except Exception:
+                        # A stored signal whose order later errors is still "stored" —
+                        # execute_signal owns its own failure handling/logging.
+                        logger.exception("execute_signal raised for signal_id=%s — continuing", signal_id)
+                    finally:
+                        exec_conn.close()
+
+            return "stored"
+        except Exception:
+            logger.exception("process_alert failed for url=%s", url)
+            return "failed"
 
     def shutdown(self):
         """Graceful shutdown — quit Chrome driver (SIGTERM handler)."""
