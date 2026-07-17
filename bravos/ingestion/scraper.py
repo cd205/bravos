@@ -23,6 +23,7 @@ from selenium.common.exceptions import (
 from urllib3.exceptions import MaxRetryError
 from webdriver_manager.chrome import ChromeDriverManager
 
+from bravos import runtime
 from bravos.config.secrets_config import get_secret
 from bravos.config import settings
 from bravos.db import get_connection
@@ -322,17 +323,10 @@ class BravosScraper:
         # signal_id may still be None if the DB lookup itself failed (is_new=False case).
         if is_new and signal_id is not None and parsed.get("confidence") == "high":
             # Check if the IBKR connection is paused (USR1 received, waiting for USR2).
-            # Import lazily to avoid circular imports — run_ingestion sets these at startup.
-            try:
-                import scripts.run_ingestion as _daemon
-                ibkr_paused = _daemon._ibkr_paused
-                paused_queue = _daemon._paused_signal_queue
-            except (ImportError, AttributeError):
-                ibkr_paused = False
-                paused_queue = None
-
-            if ibkr_paused and paused_queue is not None:
-                paused_queue.put(signal_id)
+            # NEW — Session 2b: pause state lives in bravos.runtime (always importable,
+            # no guard needed; the silent not-paused fallback is gone).
+            if runtime.ibkr_paused:
+                runtime.paused_signal_queue.put(signal_id)
                 logger.info(
                     "IBKR paused — signal_id=%s queued for execution on resume", signal_id
                 )

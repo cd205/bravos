@@ -97,7 +97,7 @@ def test_run_cycle_survives_dead_driver(monkeypatch):
     monkeypatch.setattr(daemon, "_scraper", fake)
     monkeypatch.setattr(daemon, "_recover_scraper", MagicMock(return_value=True))
     monkeypatch.setattr(daemon, "_consecutive_recovery_failures", 0)
-    monkeypatch.setattr(daemon.broker_module, "ibapp", None)
+    monkeypatch.setattr("bravos.runtime.ibapp", None)
 
     daemon.run_cycle()  # must NOT raise (schedule bookkeeping stays safe)
 
@@ -109,7 +109,7 @@ def test_run_cycle_triggers_recovery_on_dead_driver(monkeypatch):
     monkeypatch.setattr(daemon, "_scraper", fake)
     monkeypatch.setattr(daemon, "_recover_scraper", recover_mock)
     monkeypatch.setattr(daemon, "_consecutive_recovery_failures", 0)
-    monkeypatch.setattr(daemon.broker_module, "ibapp", None)
+    monkeypatch.setattr("bravos.runtime.ibapp", None)
 
     daemon.run_cycle()
 
@@ -125,7 +125,7 @@ def test_run_cycle_login_recovers_expired_session_without_recreation(monkeypatch
     monkeypatch.setattr(daemon, "_scraper", fake)
     monkeypatch.setattr(daemon, "_recover_scraper", recover_mock)
     monkeypatch.setattr(daemon, "_consecutive_recovery_failures", 0)
-    monkeypatch.setattr(daemon.broker_module, "ibapp", None)
+    monkeypatch.setattr("bravos.runtime.ibapp", None)
 
     daemon.run_cycle()
 
@@ -141,7 +141,7 @@ def test_run_cycle_alerts_after_threshold_failures(monkeypatch):
     monkeypatch.setattr(daemon, "_recover_scraper", MagicMock(return_value=False))
     monkeypatch.setattr(daemon, "send_alert", alert_mock)
     monkeypatch.setattr(daemon, "_consecutive_recovery_failures", 0)
-    monkeypatch.setattr(daemon.broker_module, "ibapp", None)
+    monkeypatch.setattr("bravos.runtime.ibapp", None)
 
     for _ in range(daemon.RECOVERY_ALERT_THRESHOLD):
         daemon.run_cycle()  # must never raise

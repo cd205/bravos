@@ -664,7 +664,7 @@ def test_bracket_fallback_no_tpsl(db_connection):
          patch("bravos.execution.executor._submit_order", return_value="SUBMITTED") as mock_bare, \
          patch("bravos.execution.executor._fetch_price", return_value=300.0), \
          patch("bravos.risk.gate.RiskGate.check", return_value=(True, "pass")), \
-         patch("bravos.broker.connection.ibapp", mock_ibapp):
+         patch("bravos.runtime.ibapp", mock_ibapp):
         execute_signal(signal_id, db_connection)
 
     mock_bracket.assert_not_called()
@@ -701,7 +701,7 @@ def test_bracket_fallback_qty_too_small(db_connection):
          patch("bravos.execution.executor._submit_order", return_value="SUBMITTED") as mock_bare, \
          patch("bravos.execution.executor._fetch_price", return_value=300.0), \
          patch("bravos.risk.gate.RiskGate.check", return_value=(True, "pass")), \
-         patch("bravos.broker.connection.ibapp", mock_ibapp):
+         patch("bravos.runtime.ibapp", mock_ibapp):
         execute_signal(signal_id, db_connection)
 
     # D-20 fallback: quantity=1 < 3 TPs → bracket never submitted, bare MKT called
@@ -732,7 +732,7 @@ def test_bracket_close_signal_routes_bare(db_connection):
          patch("bravos.execution.executor._submit_order", return_value="SUBMITTED"), \
          patch("bravos.execution.executor._fetch_price", return_value=300.0), \
          patch("bravos.risk.gate.RiskGate.check", return_value=(True, "pass")), \
-         patch("bravos.broker.connection.ibapp", mock_ibapp):
+         patch("bravos.runtime.ibapp", mock_ibapp):
         execute_signal(signal_id, db_connection)
 
     mock_bracket.assert_not_called()

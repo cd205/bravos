@@ -992,7 +992,15 @@ def _update_order_partial(db_conn, ibkr_order_id: int, avg_fill_price: float) ->
 
 # ── Module-level singleton ─────────────────────────────────────────────────
 
-# Set by run_ingestion.py at startup — callers import this reference.
+# DEPRECATED back-compat alias (Session 2b, IMPROVEMENTS item 2). Canonical
+# location is now bravos.runtime.ibapp — set by run_ingestion.py at startup,
+# execute_pending.py, and validate_pipeline.py. This attribute is mirror-
+# written by the same writers for one release and read only by tests
+# (test_broker.py) and the shutdown/pause call sites still in this module's
+# callers; new readers should use bravos.runtime.ibapp instead.
+# FORBIDDEN: never re-export this attribute via a top-level `from`-import of
+# bravos.runtime here — that would bind this name to the object runtime.ibapp
+# pointed at import time and never see later reassignment (stale-name-binding
+# trap).
 # Not set at import time to avoid side effects.
-# Phase 4 callers: from bravos.broker.connection import ibapp
 ibapp: "IBApp | None" = None

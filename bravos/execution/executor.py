@@ -111,7 +111,10 @@ def execute_signal(signal_id: int, db_conn) -> None:
     Never raises. All errors are logged.
     """
     # D-14: import singleton at call time (not module top) to avoid import cycle
-    from bravos.broker.connection import ibapp
+    # NEW — canonical singleton location (Session 2b); read at call time so
+    # reassignment by connect/resume is always seen (never from-import it).
+    from bravos import runtime
+    ibapp = runtime.ibapp
 
     if ibapp is None or not ibapp.is_connected():
         logger.warning("ibapp not connected — skipping execution for signal_id=%s", signal_id)
