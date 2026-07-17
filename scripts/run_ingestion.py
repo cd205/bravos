@@ -71,10 +71,10 @@ _scraper: BravosScraper | None = None
 # ── IBKR pause/resume state ──────────────────────────────────────────────────
 # SIGUSR1 pauses the IBKR connection so TWS/desktop can connect.
 # SIGUSR2 resumes it and flushes any signals that arrived while paused.
-# _paused is read on the alert-socket thread, written only from signal handlers
-# (main thread). queue.Queue is thread-safe; no extra lock needed.
-_ibkr_paused = False
-_paused_signal_queue: queue.Queue[int] = queue.Queue()
+# State lives in bravos.runtime (ibkr_paused / paused_signal_queue) — Session
+# 2b. These handlers are its only writers; read on the alert-socket thread by
+# the scraper, written only here from signal handlers (main thread).
+# queue.Queue is thread-safe; the bool is a single-word read — no lock needed.
 
 
 def _get_db_connection():
@@ -145,11 +145,10 @@ def handle_pause(signum, frame):
     Alerts that arrive while paused are queued and flushed on resume.
     Chrome driver and Gmail poller are unaffected.
     """
-    global _ibkr_paused
-    if _ibkr_paused:
+    if runtime.ibkr_paused:
         logger.info("SIGUSR1 received but already paused — ignoring")
         return
-    _ibkr_paused = True
+    runtime.ibkr_paused = True
     logger.info("IBKR PAUSED — disconnecting ibapi so TWS can connect (run 'bravos-resume' when done)")
     if runtime.ibapp is not None:
         try:
@@ -160,11 +159,10 @@ def handle_pause(signum, frame):
 
 def handle_resume(signum, frame):
     """SIGUSR2: reconnect IBKR and flush any signals queued during the pause."""
-    global _ibkr_paused
-    if not _ibkr_paused:
+    if not runtime.ibkr_paused:
         logger.info("SIGUSR2 received but not paused — ignoring")
         return
-    _ibkr_paused = False
+    runtime.ibkr_paused = False
     logger.info("IBKR RESUMING — reconnecting ibapi...")
 
     _ibapp = IBApp(
@@ -184,9 +182,9 @@ def handle_resume(signum, frame):
 
     # Flush signals that arrived while paused
     queued = []
-    while not _paused_signal_queue.empty():
+    while not runtime.paused_signal_queue.empty():
         try:
-            queued.append(_paused_signal_queue.get_nowait())
+            queued.append(runtime.paused_signal_queue.get_nowait())
         except queue.Empty:
             break
 
