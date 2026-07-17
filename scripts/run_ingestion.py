@@ -47,6 +47,7 @@ import bravos.broker.connection as broker_module
 from bravos.broker.connection import IBApp
 from bravos.config import settings
 from bravos.config.settings import SCRAPE_INTERVAL_SECONDS
+from bravos.db import get_connection
 from bravos.ingestion.scraper import BravosScraper, catch_cycle_exceptions
 from bravos.execution.executor import _gate
 from bravos.notifications.notifier import send_alert, record_parse_outcome
@@ -76,17 +77,8 @@ _paused_signal_queue: queue.Queue[int] = queue.Queue()
 
 
 def _get_db_connection():
-    """Open a psycopg2 connection for reconciliation. Closed after use."""
-    import psycopg2
-    import os
-    password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
-    return psycopg2.connect(
-        host=settings.DB_HOST,
-        port=settings.DB_PORT,
-        dbname=settings.DB_NAME,
-        user=settings.DB_USER,
-        password=password,
-    )
+    """Open a database connection for reconciliation. Closed after use."""
+    return get_connection()
 
 
 def handle_shutdown(signum, frame):
@@ -198,14 +190,9 @@ def handle_resume(signum, frame):
     if queued:
         logger.info("Flushing %d signal(s) queued during IBKR pause: %s", len(queued), queued)
         from bravos.execution.executor import execute_signal
-        import psycopg2
-        password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
         for signal_id in queued:
             try:
-                exec_conn = psycopg2.connect(
-                    host=settings.DB_HOST, port=settings.DB_PORT,
-                    dbname=settings.DB_NAME, user=settings.DB_USER, password=password,
-                )
+                exec_conn = get_connection()
                 try:
                     execute_signal(signal_id, exec_conn)
                 finally:

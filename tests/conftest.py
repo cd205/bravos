@@ -7,16 +7,19 @@ These fixtures are available to all tests in the tests/ directory.
 import os
 import pytest
 
+from bravos.db import get_connection
+
 
 @pytest.fixture
 def db_connection():
     """
-    Yields a live psycopg2 connection to the effective configured database
+    Yields a live database connection to the effective configured database
     (bravos.config.settings.DB_NAME).
 
     Connection string: postgresql://{DB_USER}@{DB_HOST}/{DB_NAME}
-    Password: read from BRAVOS_DB_PASSWORD env var, falling back to
-    'change_me_at_deploy' (the placeholder used before Secret Manager is wired).
+    Password: read from BRAVOS_DB_PASSWORD env var via bravos.db.get_connection();
+    the password is now REQUIRED — get_connection() raises RuntimeError if it
+    is unset or empty (no more change_me_at_deploy fallback).
 
     ISOLATION GUARD: this fixture (and therefore every test that requests it)
     refuses to run against the production database ('bravos_trading') unless
@@ -30,8 +33,6 @@ def db_connection():
 
     The connection is closed automatically after each test.
     """
-    import psycopg2
-
     from bravos.config import settings
 
     effective_db = settings.DB_NAME
@@ -50,14 +51,9 @@ def db_connection():
             returncode=1,
         )
 
-    password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
-    conn = psycopg2.connect(
-        host=settings.DB_HOST,
-        port=settings.DB_PORT,  # Cloud SQL Auth Proxy listens here
-        dbname=effective_db,
-        user=settings.DB_USER,
-        password=password,
-    )
+    # get_connection() reads settings.DB_NAME, which IS effective_db (checked
+    # by the guard above), plus DB_HOST/PORT/USER — identical connection.
+    conn = get_connection()
     try:
         yield conn
     finally:
@@ -94,17 +90,8 @@ def _assert_no_fake_lots():
     if not authorized:
         return
 
-    import psycopg2
-
-    password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
     try:
-        conn = psycopg2.connect(
-            host=settings.DB_HOST,
-            port=settings.DB_PORT,
-            dbname=settings.DB_NAME,
-            user=settings.DB_USER,
-            password=password,
-        )
+        conn = get_connection()
     except Exception as exc:
         # Regression guard, not a primary assertion — an unreachable DB here
         # should not mask real test results, so degrade to a warning.

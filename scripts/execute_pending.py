@@ -14,10 +14,10 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import psycopg2
 import bravos.broker.connection as broker_module
 from bravos.broker.connection import IBApp
 from bravos.config import settings
+from bravos.db import get_connection
 from bravos.execution.executor import execute_signal
 
 logging.basicConfig(
@@ -53,12 +53,7 @@ def get_pending_signals(conn, since: str) -> list[dict]:
 
 
 def _get_db_connection():
-    password = os.environ.get("BRAVOS_DB_PASSWORD", "")
-    return psycopg2.connect(
-        host=settings.DB_HOST, port=settings.DB_PORT,
-        dbname=settings.DB_NAME, user=settings.DB_USER,
-        password=password,
-    )
+    return get_connection()
 
 
 def main():

@@ -13,9 +13,8 @@ import re
 import sys
 import logging
 
-import psycopg2
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from bravos.db import get_connection
 from bravos.ingestion.parser import STOP_LOSS_RE, TAKE_PROFIT_RE, PRICE_IN_LIST_RE
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -53,14 +52,7 @@ def extract_tp_sl(text: str):
 
 
 def main():
-    pw = os.environ.get("BRAVOS_DB_PASSWORD", "")
-    conn = psycopg2.connect(
-        host=os.environ.get("BRAVOS_DB_HOST", "127.0.0.1"),
-        port=int(os.environ.get("BRAVOS_DB_PORT", "5432")),
-        dbname=os.environ.get("BRAVOS_DB_NAME", "bravos_trading"),
-        user=os.environ.get("BRAVOS_DB_USER", "bravos"),
-        password=pw,
-    )
+    conn = get_connection()
     cur = conn.cursor()
 
     cur.execute("""

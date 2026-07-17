@@ -25,7 +25,6 @@ import signal
 import sys
 import time
 import logging
-import os
 from pathlib import Path
 
 # Ensure the repo root is on sys.path when running as `python scripts/validate_pipeline.py`
@@ -34,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import bravos.broker.connection as broker_module
 from bravos.broker.connection import IBApp
 from bravos.config import settings
+from bravos.db import get_connection
 from bravos.ingestion.scraper import BravosScraper
 
 # Configure logging (same pattern as run_ingestion.py)
@@ -79,20 +79,12 @@ URL_LIST: list[tuple[str, str, str]] = [
 
 
 def _get_db_connection():
-    """Open a psycopg2 connection. Closed after use.
+    """Open a database connection. Closed after use.
 
-    Copied verbatim from scripts/run_ingestion.py lines 62–73 per RESEARCH
-    Don't Hand-Roll principle.
+    Delegates to bravos.db.get_connection() (shared helper, RESEARCH
+    Don't Hand-Roll principle).
     """
-    import psycopg2
-    password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
-    return psycopg2.connect(
-        host=settings.DB_HOST,
-        port=settings.DB_PORT,
-        dbname=settings.DB_NAME,
-        user=settings.DB_USER,
-        password=password,
-    )
+    return get_connection()
 
 
 def assert_signal_processed(
@@ -246,7 +238,7 @@ def run_startup() -> tuple:
     # Step 4: Install dedicated DB connection for the api thread.
     # CRITICAL: this connection is owned by the ibkr-api thread (execDetails,
     # orderStatus callbacks fire there). It is NEVER shared with the main thread.
-    # Per RESEARCH Pitfall 1 / T-06-04: psycopg2 connections are not thread-safe.
+    # Per RESEARCH Pitfall 1 / T-06-04: database connections are not thread-safe.
     try:
         _ibapp._db_conn = _get_db_connection()
         logger.info("IBApp._db_conn installed for fill callbacks (api-thread connection)")

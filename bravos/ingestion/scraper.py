@@ -25,6 +25,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 from bravos.config.secrets_config import get_secret
 from bravos.config import settings
+from bravos.db import get_connection
 from bravos.ingestion.parser import parse_signal
 
 logger = logging.getLogger(__name__)
@@ -239,15 +240,7 @@ class BravosScraper:
         RETURNING id returns no rows on conflict (see RESEARCH Pitfall 4), so we look
         up the existing id in that case and return is_new=False.
         """
-        import psycopg2
-        password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
-        conn = psycopg2.connect(
-            host=settings.DB_HOST,
-            port=settings.DB_PORT,
-            dbname=settings.DB_NAME,
-            user=settings.DB_USER,
-            password=password,
-        )
+        conn = get_connection()
         try:
             with conn.cursor() as cur:
                 cur.execute(
@@ -345,15 +338,7 @@ class BravosScraper:
                 )
             else:
                 from bravos.execution.executor import execute_signal
-                import psycopg2
-                password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
-                exec_conn = psycopg2.connect(
-                    host=settings.DB_HOST,
-                    port=settings.DB_PORT,
-                    dbname=settings.DB_NAME,
-                    user=settings.DB_USER,
-                    password=password,
-                )
+                exec_conn = get_connection()
                 try:
                     execute_signal(signal_id, exec_conn)
                 except Exception:
