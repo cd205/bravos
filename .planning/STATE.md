@@ -121,10 +121,11 @@ None yet.
 | 260710-7bi | Session 0b: test-DB isolation guard — tests can never write to production bravos_trading | 2026-07-10 | 25b761d | | [260710-7bi](./quick/260710-7bi-session-0b-from-planning-implementation-/) |
 | 260714-6gz | Session 1a: rejection routing + honest order statuses (IMPROVEMENTS.md item 3) | 2026-07-14 | 001e94e | Needs Review | [260714-6gz](./quick/260714-6gz-session-1a-from-planning-implementation-/) |
 | 260716-7dx | Session 1b: fill replay on connect via reqExecutions + double-count gating (IMPROVEMENTS.md item 16) | 2026-07-16 | c0e5fc8 | Verified | [260716-7dx](./quick/260716-7dx-session-1b-from-planning-implementation-/) |
+| 260716-82s | Session 2a: shared DB helper bravos/db.py, fail-loud password, 10 sites consolidated (IMPROVEMENTS.md item 1) | 2026-07-17 | 743d92e | | [260716-82s](./quick/260716-82s-session-2a-from-planning-implementation-/) |
 
 ## Session Continuity
 
-Last activity: 2026-07-16 - Completed quick task 260716-7dx: fill replay on connect (IMPLEMENTATION_PLAN.md Session 1b)
+Last activity: 2026-07-17 - Completed quick task 260716-82s: shared DB helper (IMPLEMENTATION_PLAN.md Session 2a)
 Last session: 2026-06-01T05:11:23.989Z
 Stopped at: Phase 9 context gathered
 Resume file: .planning/phases/09-bracket-orders/09-CONTEXT.md
