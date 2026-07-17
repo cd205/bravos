@@ -35,7 +35,6 @@ Environment variables read at runtime:
 import argparse
 import email
 import imaplib
-import os
 import re
 import signal
 import socket
@@ -51,6 +50,7 @@ import psycopg2
 
 from bravos.config import settings
 from bravos.config.secrets_config import get_secret
+from bravos.db import get_connection
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,14 +75,7 @@ def _handle_shutdown(signum, frame):
 
 
 def _db_connect() -> psycopg2.extensions.connection:
-    password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
-    return psycopg2.connect(
-        host=settings.DB_HOST,
-        port=settings.DB_PORT,
-        dbname=settings.DB_NAME,
-        user=settings.DB_USER,
-        password=password,
-    )
+    return get_connection()
 
 
 def _is_message_id_seen(conn, message_id: str) -> bool:

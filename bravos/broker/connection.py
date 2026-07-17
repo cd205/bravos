@@ -19,8 +19,8 @@ from ibapi.client import EClient
 from ibapi.execution import ExecutionFilter
 from ibapi.wrapper import EWrapper
 
-from bravos.config import settings
 from bravos.config.settings import IBKR_CLIENT_ID, IBKR_HOST, get_ibkr_port
+from bravos.db import get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +124,7 @@ class IBApp(EWrapper, EClient):
         # ── Phase 5: dedicated DB connection for fill callbacks (api thread) ──
         # Set by run_ingestion.py main() after run_startup_reconciliation succeeds.
         # Owned by the ibkr-api thread (execDetails / orderStatus / position callbacks).
-        # NEVER shared with the main thread or executor (psycopg2 connections are not
+        # NEVER shared with the main thread or executor (database connections are not
         # thread-safe; see RESEARCH Pitfall 1).
         self._db_conn = None
 
@@ -667,24 +667,13 @@ class IBApp(EWrapper, EClient):
 
     def _open_short_lived_db_conn(self):
         """
-        Open a psycopg2 connection using only bravos.config.settings + env vars.
+        Open a short-lived database connection via the shared bravos.db helper.
 
-        Mirrors scripts/run_ingestion.py._get_db_connection() exactly (kept in
-        sync manually — that dependency direction runs the other way, so this
-        module cannot import from run_ingestion.py). Caller is responsible for
-        closing the returned connection.
+        Delegates to bravos.db.get_connection() (settings + BRAVOS_DB_PASSWORD
+        read at call time). Caller is responsible for closing the returned
+        connection.
         """
-        import os
-        import psycopg2
-
-        password = os.environ.get("BRAVOS_DB_PASSWORD", "change_me_at_deploy")
-        return psycopg2.connect(
-            host=settings.DB_HOST,
-            port=settings.DB_PORT,
-            dbname=settings.DB_NAME,
-            user=settings.DB_USER,
-            password=password,
-        )
+        return get_connection()
 
     def _refresh_after_connect(self) -> None:
         """

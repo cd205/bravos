@@ -17,7 +17,6 @@ Output:
 Exit code: 0 if all positions match, 1 if any mismatch.
 """
 import argparse
-import os
 import sys
 import threading
 import time
@@ -25,12 +24,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import psycopg2
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
 from ibapi.contract import Contract
 
 from bravos.config import settings
+from bravos.db import get_connection
 
 
 # ── Minimal IBKR client to fetch positions ──────────────────────────────────
@@ -196,14 +195,7 @@ def main():
     ibkr_positions = fetch_ibkr_positions(port)
     print(f"Fetched {len(ibkr_positions)} positions from IBKR")
 
-    pw = os.environ.get("BRAVOS_DB_PASSWORD", "")
-    conn = psycopg2.connect(
-        host=settings.DB_HOST,
-        port=settings.DB_PORT,
-        dbname=settings.DB_NAME,
-        user=settings.DB_USER,
-        password=pw,
-    )
+    conn = get_connection()
 
     try:
         db_lots = fetch_db_open_lots(conn)
