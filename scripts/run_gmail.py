@@ -51,6 +51,7 @@ import psycopg2
 from bravos.config import settings
 from bravos.config.secrets_config import get_secret
 from bravos.db import get_connection
+from bravos.notifications.notifier import send_alert
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,6 +67,15 @@ POLL_INTERVAL_SECONDS = 60
 _URL_RE = re.compile(r"https://bravosresearch\.com/[^\s\"'<>]+", re.IGNORECASE)
 
 _shutdown = False
+
+# Session 2c (IMPROVEMENTS.md item 17): bounded retry for a Message-ID whose
+# dispatch keeps failing. These dicts are in-memory only — a process restart
+# resets them, which only EXTENDS retries (never drops a message), because
+# the DB _is_message_id_seen guard is the real dedup and mark-seen is the
+# terminal state. Losing the in-memory counter on restart is acceptable.
+DISPATCH_FAILURE_ALERT_THRESHOLD = 10
+_dispatch_failures: dict[str, int] = {}
+_last_dispatch_error: dict[str, str] = {}  # message_id -> last ERR reason, for the alert body
 
 
 def _handle_shutdown(signum, frame):
@@ -114,8 +124,14 @@ def _mark_message_id_seen(conn, message_id: str):
     conn.commit()
 
 
-def _set_gmail_message_id(conn, message_id: str, post_url: str):
-    """Back-fill gmail_message_id onto the signal row written by process_alert()."""
+def _set_gmail_message_id(conn, message_id: str, post_url: str) -> int:
+    """Back-fill gmail_message_id onto the signal row written by process_alert().
+
+    Returns the number of rows affected. 0 rows means the signal row was
+    missing or already tagged (e.g. duplicate path) — the caller falls back
+    to _mark_message_id_seen so this Message-ID can never loop forever
+    (the July 7 HROW incident mechanism).
+    """
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -126,7 +142,9 @@ def _set_gmail_message_id(conn, message_id: str, post_url: str):
             """,
             (message_id, post_url),
         )
+        affected = cur.rowcount
     conn.commit()
+    return affected
 
 
 def _extract_urls(msg: email.message.Message) -> list[str]:
@@ -154,8 +172,17 @@ def _extract_urls(msg: email.message.Message) -> list[str]:
     return result
 
 
+# Session 2c: last raw daemon response (or local error string) for the most
+# recent _dispatch_url_to_daemon call, keyed off nothing (single most-recent
+# value) — read immediately after a failed dispatch to build the 10-strike
+# alert body. Least-invasive option that keeps _dispatch_url_to_daemon's
+# existing `-> bool` truthiness contract for all other callers/tests.
+_last_socket_response: str = ""
+
+
 def _dispatch_url_to_daemon(url: str) -> bool:
     """Send a URL to the trading daemon via Unix socket. Returns True on success."""
+    global _last_socket_response
     sock_path = settings.ALERT_SOCKET_PATH
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
@@ -173,14 +200,17 @@ def _dispatch_url_to_daemon(url: str) -> bool:
                 return True
             else:
                 logger.error("Daemon returned error for url=%s: %s", url, resp)
+                _last_socket_response = resp
                 return False
     except FileNotFoundError:
         logger.error(
             "Alert socket not found at %s — is bravos-trading.service running?", sock_path
         )
+        _last_socket_response = "socket not found (bravos-trading.service not running?)"
         return False
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to dispatch url=%s to trading daemon", url)
+        _last_socket_response = f"{type(exc).__name__}: {exc}"
         return False
 
 
@@ -269,11 +299,35 @@ def process_emails(
             logger.info("Dispatching alert: Message-ID=%s url=%s", message_id, url)
             success = _dispatch_url_to_daemon(url)
             if success:
-                _set_gmail_message_id(db_conn, message_id, url)
+                affected = _set_gmail_message_id(db_conn, message_id, url)
+                if affected == 0:
+                    # July 7 loop mechanism: signal row missing/already-tagged
+                    # (e.g. duplicate path). Mark seen so this message can
+                    # never re-dispatch forever.
+                    logger.info(
+                        "Dispatch OK but _set_gmail_message_id updated 0 rows for %s — "
+                        "marking seen to prevent retry loop", message_id)
+                    _mark_message_id_seen(db_conn, message_id)
+                _dispatch_failures.pop(message_id, None)  # success clears the counter
+                _last_dispatch_error.pop(message_id, None)
                 dispatched += 1
             else:
-                # Mark seen anyway to avoid infinite retry on a broken URL
-                _mark_message_id_seen(db_conn, message_id)
+                n = _dispatch_failures.get(message_id, 0) + 1
+                _dispatch_failures[message_id] = n
+                _last_dispatch_error[message_id] = _last_socket_response
+                logger.warning("Dispatch failed (%d/%d) for Message-ID=%s url=%s",
+                                n, DISPATCH_FAILURE_ALERT_THRESHOLD, message_id, url)
+                if n >= DISPATCH_FAILURE_ALERT_THRESHOLD:
+                    _mark_message_id_seen(db_conn, message_id)
+                    send_alert(
+                        f"Alert dispatch failed {n}x — {url}",
+                        f"Gmail alert dispatch failed {n} consecutive times.\n"
+                        f"message-id: {message_id}\nurl: {url}\n"
+                        f"last error: {_last_dispatch_error.get(message_id, 'unknown')}\n"
+                        f"Message marked seen; retries stopped.",
+                    )
+                    _dispatch_failures.pop(message_id, None)
+                    _last_dispatch_error.pop(message_id, None)
 
     return dispatched
 

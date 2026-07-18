@@ -147,3 +147,51 @@ def test_run_cycle_alerts_after_threshold_failures(monkeypatch):
         daemon.run_cycle()  # must never raise
 
     assert alert_mock.called is True
+
+
+# ── _handle_alert_url socket seam (Session 2c, IMPROVEMENTS.md item 17) ─────
+# Pure-mock: monkeypatch daemon._scraper directly, no real Chrome/DB.
+
+def test_handle_alert_url_ok_on_stored(monkeypatch):
+    fake = MagicMock()
+    fake.process_alert.return_value = "stored"
+    monkeypatch.setattr(daemon, "_scraper", fake)
+    assert daemon._handle_alert_url("https://x.com/a/") == "OK"
+
+
+def test_handle_alert_url_ok_on_duplicate(monkeypatch):
+    fake = MagicMock()
+    fake.process_alert.return_value = "duplicate"
+    monkeypatch.setattr(daemon, "_scraper", fake)
+    assert daemon._handle_alert_url("https://x.com/a/") == "OK"
+
+
+def test_handle_alert_url_err_on_failed(monkeypatch):
+    fake = MagicMock()
+    fake.process_alert.return_value = "failed"
+    monkeypatch.setattr(daemon, "_scraper", fake)
+    result = daemon._handle_alert_url("https://x.com/a/")
+    assert result.startswith("ERR")
+
+
+def test_handle_alert_url_err_on_none(monkeypatch):
+    """Defensive: process_alert returning None (should not happen post-2c) is still ERR."""
+    fake = MagicMock()
+    fake.process_alert.return_value = None
+    monkeypatch.setattr(daemon, "_scraper", fake)
+    result = daemon._handle_alert_url("https://x.com/a/")
+    assert result.startswith("ERR")
+
+
+def test_handle_alert_url_err_on_raise(monkeypatch):
+    fake = MagicMock()
+    fake.process_alert.side_effect = RuntimeError("boom")
+    monkeypatch.setattr(daemon, "_scraper", fake)
+    result = daemon._handle_alert_url("https://x.com/a/")
+    assert result.startswith("ERR")
+
+
+def test_handle_alert_url_err_when_scraper_not_ready(monkeypatch):
+    monkeypatch.setattr(daemon, "_scraper", None)
+    result = daemon._handle_alert_url("https://x.com/a/")
+    assert result == "ERR scraper not ready"
