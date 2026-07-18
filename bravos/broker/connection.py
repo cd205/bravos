@@ -13,16 +13,50 @@ Plans:
 import logging
 import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime
 
 from ibapi.client import EClient
+from ibapi.contract import Contract
 from ibapi.execution import ExecutionFilter
+from ibapi.order import Order
 from ibapi.wrapper import EWrapper
 
 from bravos.config.settings import IBKR_CLIENT_ID, IBKR_HOST, get_ibkr_port
 from bravos.db import get_connection
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class OrderResult:
+    """
+    Outcome of resolving an order-status slot (place_order_and_wait /
+    _await_registered_order), handed back to the caller (executor.py) so the
+    SUBMITTED/REJECTED/UNKNOWN mapping (_STATUS_MAP / IBKR_ERROR / None) stays
+    the single source of truth in executor._resolve_db_status — Session-1a
+    semantics are carried, not reinterpreted, here.
+    """
+    kind: str                  # "callback" | "ibkr_error" | "timeout"
+    status_str: str | None     # raw IBKR status ("PreSubmitted"/"Submitted"/"Inactive"),
+                                # "IBKR_ERROR", or None on timeout
+    code: int | None = None
+    message: str | None = None
+
+
+def build_contract(ticker: str) -> Contract:
+    """
+    Build a STK SMART USD contract (equities, v1 scope).
+
+    Moved from executor._build_contract (item 4 / 3a) — broker-domain helper,
+    now the single source of truth for contract construction.
+    """
+    contract = Contract()
+    contract.symbol = ticker
+    contract.secType = "STK"
+    contract.exchange = "SMART"
+    contract.currency = "USD"
+    return contract
 
 # ── Module-level constants ─────────────────────────────────────────────────
 
@@ -810,6 +844,119 @@ class IBApp(EWrapper, EClient):
         _write_position_snapshot(db_conn, self._positions)
         _reconcile_against_db(db_conn, self._positions, [])
         logger.info("Periodic reconciliation complete")
+
+    # ── Session 3 (item 4/3a): public account + market-data + order-slot API ──
+
+    def get_nlv(self) -> float | None:
+        """
+        Read NetLiquidation from _account_summary, cast to float.
+
+        The SINGLE parse that replaces both gate._read_nlv and executor.
+        _calculate_quantity's inline parse. Returns None when the tag is
+        missing or not float-castable (logged at WARNING) — callers treat
+        None as "cannot size/read NLV".
+        """
+        raw = (self._account_summary or {}).get("NetLiquidation")
+        if raw is None:
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            logger.warning("NetLiquidation is not float-castable: %r", raw)
+            return None
+
+    def get_daily_pnl(self) -> float | None:
+        """Read the daily P&L populated by the pnl() callback."""
+        return self._daily_pnl
+
+    def fetch_delayed_price(self, ticker: str, timeout: float = 5.0) -> float | None:
+        """
+        Fetch a delayed market price for `ticker`. Returns None on timeout.
+
+        Moved from executor._fetch_price verbatim (item 4/3a) — allocates a
+        req_id under _tick_lock, installs a tick slot, requests delayed data
+        (reqMarketDataType(3)), waits up to `timeout` seconds for a tick
+        (types 4, 9, 68, 76 — routed by tickPrice), and always cancels the
+        subscription + pops the slot in finally.
+        """
+        contract = build_contract(ticker)
+
+        with self._tick_lock:
+            req_id = self._mkt_req_counter
+            self._mkt_req_counter += 1
+            slot = {"event": threading.Event(), "price": None}
+            self._tick_events[req_id] = slot
+
+        try:
+            self.reqMarketDataType(3)
+            self.reqMktData(req_id, contract, "", False, False, [])
+            got = slot["event"].wait(timeout=timeout)
+            return slot["price"] if got else None
+        except Exception:
+            logger.warning("fetch_delayed_price(%s) raised", ticker, exc_info=True)
+            return None
+        finally:
+            try:
+                self.cancelMktData(req_id)
+            except Exception:
+                logger.warning("cancelMktData(%s) raised — continuing", req_id, exc_info=True)
+            with self._tick_lock:
+                self._tick_events.pop(req_id, None)
+
+    def _register_order_slot(self, order_id) -> None:
+        """
+        Install an order-status slot BEFORE placeOrder to avoid a race with a
+        fast callback. This is the race-guard install that both submit paths
+        (plain via place_order_and_wait, bracket via direct register/await)
+        must perform prior to calling placeOrder.
+        """
+        self._order_status_events[order_id] = {"event": threading.Event(), "status": None}
+
+    def _await_registered_order(self, order_id, timeout: float = 3.0) -> OrderResult:
+        """
+        Wait on a previously-registered order-status slot and translate the
+        resolved slot into an OrderResult. Always pops the slot in finally.
+
+        Mapping (identical regardless of caller — plain or bracket path):
+          - slot["status"] == "IBKR_ERROR" -> kind="ibkr_error"
+          - slot["status"] is None (timeout)-> kind="timeout"
+          - else (real callback)            -> kind="callback"
+
+        Does NOT do DB-status mapping — that stays in executor._resolve_db_status,
+        which keeps the SUBMITTED/REJECTED/UNKNOWN vocabulary and its ERROR-level
+        logging in the executor, unchanged.
+        """
+        slot = self._order_status_events.get(order_id)
+        try:
+            got = slot["event"].wait(timeout)
+            if not got:
+                logger.warning(
+                    "orderStatus callback timed out for order_id=%s — status unverified",
+                    order_id,
+                )
+        finally:
+            self._order_status_events.pop(order_id, None)
+
+        raw = slot.get("status")
+        if raw == "IBKR_ERROR":
+            return OrderResult("ibkr_error", raw, slot.get("code"), slot.get("message"))
+        if raw is None:
+            return OrderResult("timeout", None, None, None)
+        return OrderResult("callback", raw, None, None)
+
+    def place_order_and_wait(self, order_id, contract, order, timeout: float = 3.0) -> OrderResult:
+        """
+        Thin composition: register the order-status slot, place the order,
+        then await the resolved slot. Used by the PLAIN submit path.
+
+        The bracket path CANNOT use this atomic call because it must place
+        the parent, STP, and all TP children (last with transmit=True) BEFORE
+        waiting — it uses _register_order_slot + placeOrder×(N+2) +
+        _await_registered_order directly instead.
+        """
+        self._register_order_slot(order_id)
+        self.placeOrder(order_id, contract, order)
+        return self._await_registered_order(order_id, timeout)
 
 
 # ── Plan 03-3: Module-level helper functions ───────────────────────────────
