@@ -138,8 +138,12 @@ def test_gate_log_pass(db_connection):
 
     gate = RiskGate()
     mock_ibapp = MagicMock()
-    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl().
+    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl(),
+    # NLV via get_nlv() — both must be real numbers or psycopg2 can't adapt the MagicMock
+    # when gate.check() writes computed values (e.g. order_allocation_pct's NLV component)
+    # into risk_gate_log.
     mock_ibapp.get_daily_pnl.return_value = 0.0
+    mock_ibapp.get_nlv.return_value = 100000.0
     # Patch market hours AND open positions count — live DB may have accumulated positions
     # from prior test runs that would trigger Gate 2 (max_positions) and prevent a pass.
     with patch("bravos.risk.gate._is_market_hours", return_value=True), \
@@ -169,8 +173,11 @@ def test_gate_log_block(db_connection):
 
     gate = RiskGate()
     mock_ibapp = MagicMock()
-    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl().
+    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl(),
+    # NLV via get_nlv() — both must be real numbers or psycopg2 can't adapt the MagicMock
+    # when gate.check() writes computed values into risk_gate_log.
     mock_ibapp.get_daily_pnl.return_value = 0.0
+    mock_ibapp.get_nlv.return_value = 100000.0
     # Force a block by patching market hours to False
     with patch("bravos.risk.gate._is_market_hours", return_value=False):
         passed, reason = gate.check(signal_id=signal_id, db_conn=db_connection, ibapp=mock_ibapp)
@@ -254,20 +261,23 @@ def test_order_db_write_pending(db_connection):
         signal_id = cur.fetchone()[0]
     db_connection.commit()
 
-    # Mock ibapp: capture placeOrder call but do NOT fire orderStatus (we want to assert pre-call DB state)
+    # Mock ibapp: capture DB state when place_order_and_wait is called (this is now the
+    # single seam that follows _insert_order_row — asserts the row exists as
+    # PENDING_SUBMISSION before place-and-wait runs, same invariant as before the
+    # Session 3 refactor when this was a placeOrder side-effect).
     mock_ibapp = MagicMock()
     order_id = int.from_bytes(os.urandom(3), "big") + 10000  # unique per run — avoids stale-row contamination (RESEARCH Bug 2)
     mock_ibapp.next_order_id = order_id
-    mock_ibapp._order_status_events = {}
 
-    # Use a side-effect on placeOrder that snapshots DB state at call time
     captured_status = {}
     def capture_db_state(*args, **kwargs):
         with db_connection.cursor() as cur:
             cur.execute("SELECT status FROM orders WHERE ibkr_order_id=%s", (order_id,))
             row = cur.fetchone()
             captured_status["status"] = row[0] if row else None
-    mock_ibapp.placeOrder = MagicMock(side_effect=capture_db_state)
+        from bravos.broker.connection import OrderResult
+        return OrderResult(kind="timeout", status_str=None)
+    mock_ibapp.place_order_and_wait = MagicMock(side_effect=capture_db_state)
 
     _submit_order(mock_ibapp, signal_id, "AAPL", "BUY", 10, db_connection)
     assert captured_status["status"] == "PENDING_SUBMISSION"
