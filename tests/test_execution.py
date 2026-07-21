@@ -276,6 +276,7 @@ def test_order_db_write_pending(db_connection):
 def test_order_status_submitted(db_connection):
     """EXEC-04: DB status transitions to SUBMITTED when orderStatus callback fires with 'Submitted'."""
     from bravos.execution.executor import _submit_order
+    from bravos.broker.connection import OrderResult
     with db_connection.cursor() as cur:
         cur.execute(
             "INSERT INTO signals (post_url, post_title, ticker, action_type, weight_from, weight_to, confidence) "
@@ -287,15 +288,9 @@ def test_order_status_submitted(db_connection):
 
     mock_ibapp = MagicMock()
     mock_ibapp.next_order_id = 1001
-    mock_ibapp._order_status_events = {}
-
-    def fire_status_callback(*args, **kwargs):
-        # Simulate the orderStatus callback firing with "Submitted"
-        slot = mock_ibapp._order_status_events.get(1001)
-        if slot is not None:
-            slot["status"] = "Submitted"
-            slot["event"].set()
-    mock_ibapp.placeOrder = MagicMock(side_effect=fire_status_callback)
+    mock_ibapp.place_order_and_wait = MagicMock(
+        return_value=OrderResult(kind="callback", status_str="Submitted")
+    )
 
     final_status = _submit_order(mock_ibapp, signal_id, "AAPL", "BUY", 10, db_connection)
     assert final_status == "SUBMITTED"
@@ -307,6 +302,7 @@ def test_order_status_submitted(db_connection):
 def test_order_status_rejected(db_connection):
     """EXEC-04: DB status transitions to REJECTED when orderStatus callback fires with 'Inactive'."""
     from bravos.execution.executor import _submit_order
+    from bravos.broker.connection import OrderResult
     with db_connection.cursor() as cur:
         cur.execute(
             "INSERT INTO signals (post_url, post_title, ticker, action_type, weight_from, weight_to, confidence) "
@@ -318,14 +314,9 @@ def test_order_status_rejected(db_connection):
 
     mock_ibapp = MagicMock()
     mock_ibapp.next_order_id = 1002
-    mock_ibapp._order_status_events = {}
-
-    def fire_rejected_callback(*args, **kwargs):
-        slot = mock_ibapp._order_status_events.get(1002)
-        if slot is not None:
-            slot["status"] = "Inactive"
-            slot["event"].set()
-    mock_ibapp.placeOrder = MagicMock(side_effect=fire_rejected_callback)
+    mock_ibapp.place_order_and_wait = MagicMock(
+        return_value=OrderResult(kind="callback", status_str="Inactive")
+    )
 
     final_status = _submit_order(mock_ibapp, signal_id, "BADTKR", "BUY", 10, db_connection)
     assert final_status == "REJECTED"
@@ -340,6 +331,7 @@ def test_order_rejected_via_error_callback(db_connection):
     """A rejection delivered via error() (IBKR_ERROR slot write) -> REJECTED,
     not SUBMITTED. Mirrors the real HROW error 10268 incident."""
     from bravos.execution.executor import _submit_order
+    from bravos.broker.connection import OrderResult
     with db_connection.cursor() as cur:
         cur.execute(
             "INSERT INTO signals (post_url, post_title, ticker, action_type, weight_from, weight_to, confidence) "
@@ -352,16 +344,9 @@ def test_order_rejected_via_error_callback(db_connection):
     order_id = int.from_bytes(os.urandom(3), "big") + 90000
     mock_ibapp = MagicMock()
     mock_ibapp.next_order_id = order_id
-    mock_ibapp._order_status_events = {}
-
-    def fire_ibkr_error(*args, **kwargs):
-        slot = mock_ibapp._order_status_events.get(order_id)
-        if slot is not None:
-            slot["status"] = "IBKR_ERROR"
-            slot["code"] = 10268
-            slot["message"] = "EtradeOnly not supported"
-            slot["event"].set()
-    mock_ibapp.placeOrder = MagicMock(side_effect=fire_ibkr_error)
+    mock_ibapp.place_order_and_wait = MagicMock(
+        return_value=OrderResult(kind="ibkr_error", status_str=None, code=10268, message="EtradeOnly not supported")
+    )
 
     final_status = _submit_order(mock_ibapp, signal_id, "HROW", "BUY", 109, db_connection)
     assert final_status == "REJECTED"
@@ -374,6 +359,7 @@ def test_order_399_then_submitted(db_connection):
     """Error 399 (accepted-order warning) does not short-circuit — a real
     Submitted callback that follows still resolves to SUBMITTED."""
     from bravos.execution.executor import _submit_order
+    from bravos.broker.connection import OrderResult
     with db_connection.cursor() as cur:
         cur.execute(
             "INSERT INTO signals (post_url, post_title, ticker, action_type, weight_from, weight_to, confidence) "
@@ -386,15 +372,11 @@ def test_order_399_then_submitted(db_connection):
     order_id = int.from_bytes(os.urandom(3), "big") + 91000
     mock_ibapp = MagicMock()
     mock_ibapp.next_order_id = order_id
-    mock_ibapp._order_status_events = {}
-
-    def fire_399_then_submitted(*args, **kwargs):
-        slot = mock_ibapp._order_status_events.get(order_id)
-        if slot is not None:
-            # Mirrors connection.py's allowlist skip: 399 is a no-op on the slot.
-            slot["status"] = "Submitted"
-            slot["event"].set()
-    mock_ibapp.placeOrder = MagicMock(side_effect=fire_399_then_submitted)
+    # Mirrors connection.py's allowlist skip: 399 is a no-op on the slot, so the
+    # eventual real callback ("Submitted") is what place_order_and_wait returns.
+    mock_ibapp.place_order_and_wait = MagicMock(
+        return_value=OrderResult(kind="callback", status_str="Submitted")
+    )
 
     final_status = _submit_order(mock_ibapp, signal_id, "AAPL", "BUY", 10, db_connection)
     assert final_status == "SUBMITTED"
@@ -756,22 +738,16 @@ def test_bracket_rejected_via_error_callback(db_connection):
     """Bracket parent rejection via error() (IBKR_ERROR slot write) -> REJECTED;
     STP/TP children stay PENDING_SUBMISSION (not falsely claimed SUBMITTED)."""
     from bravos.execution.executor import _submit_bracket_order
+    from bravos.broker.connection import OrderResult
 
     signal_id = _make_signal(db_connection, take_profits=[320.0, 350.0])
     mock_ibapp = MagicMock()
     start_id = int.from_bytes(os.urandom(3), "big") + 100000
     mock_ibapp.next_order_id = start_id
-    mock_ibapp._order_status_events = {}
-
-    def fire_ibkr_error(order_id, contract, order, *args, **kwargs):
-        if order_id == start_id:
-            slot = mock_ibapp._order_status_events.get(order_id)
-            if slot is not None:
-                slot["status"] = "IBKR_ERROR"
-                slot["code"] = 321
-                slot["message"] = "Read-Only API"
-                slot["event"].set()
-    mock_ibapp.placeOrder = MagicMock(side_effect=fire_ibkr_error)
+    mock_ibapp._register_order_slot = MagicMock()
+    mock_ibapp._await_registered_order = MagicMock(
+        return_value=OrderResult(kind="ibkr_error", status_str=None, code=321, message="Read-Only API")
+    )
 
     final_status = _submit_bracket_order(
         mock_ibapp, signal_id, "AAPL", "BUY", 20,
@@ -795,21 +771,18 @@ def test_bracket_399_then_submitted(db_connection):
     callback that follows still resolves to SUBMITTED, and children are
     bulk-updated to SUBMITTED."""
     from bravos.execution.executor import _submit_bracket_order
+    from bravos.broker.connection import OrderResult
 
     signal_id = _make_signal(db_connection, take_profits=[320.0, 350.0])
     mock_ibapp = MagicMock()
     start_id = int.from_bytes(os.urandom(3), "big") + 110000
     mock_ibapp.next_order_id = start_id
-    mock_ibapp._order_status_events = {}
-
-    def fire_399_then_submitted(order_id, contract, order, *args, **kwargs):
-        if order_id == start_id:
-            slot = mock_ibapp._order_status_events.get(order_id)
-            if slot is not None:
-                # Mirrors connection.py's allowlist skip: 399 is a no-op on the slot.
-                slot["status"] = "Submitted"
-                slot["event"].set()
-    mock_ibapp.placeOrder = MagicMock(side_effect=fire_399_then_submitted)
+    mock_ibapp._register_order_slot = MagicMock()
+    # Mirrors connection.py's allowlist skip: 399 is a no-op on the slot, so the
+    # eventual real callback ("Submitted") is what _await_registered_order returns.
+    mock_ibapp._await_registered_order = MagicMock(
+        return_value=OrderResult(kind="callback", status_str="Submitted")
+    )
 
     final_status = _submit_bracket_order(
         mock_ibapp, signal_id, "AAPL", "BUY", 20,
