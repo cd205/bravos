@@ -81,8 +81,9 @@ _ORDER_WARNING_CODES = {399}
 # reqId used for reqAccountSummary — must not collide with order reqIds.
 REQ_ID_ACCOUNT_SUMMARY = 9001
 
-# reqId used for reqPnL. Mirrors scripts/run_ingestion.py's REQ_ID_PNL
-# intentionally (kept in sync manually) — must not collide with
+# reqId used for reqPnL. Single home (Session 4a, item 7) — all callers
+# (run_ingestion, execute_pending, validate_pipeline, connection._refresh_after_connect)
+# import this constant rather than redefining it. Must not collide with
 # REQ_ID_ACCOUNT_SUMMARY=9001 above.
 REQ_ID_PNL = 9002
 
@@ -713,58 +714,21 @@ class IBApp(EWrapper, EClient):
         """
         Re-run the post-connect state refresh after an internal auto-reconnect.
 
-        Mirrors what run_ingestion.py._connect_ibkr() does for the initial
-        connect and SIGUSR2-resume paths (run_startup_reconciliation + fresh
-        fill-callback db_conn + reqPnL re-subscribe), but self-contained: the
-        ibkr-reconnect daemon thread has no injected db_conn, so this method
-        opens and closes its own short-lived connection.
-
-        Every step is wrapped so a DB or subscription failure is logged but
-        never aborts the reconnect — the socket is already back up by the
-        time this runs.
+        Delegates the shared reconcile -> _db_conn -> replay -> reqPnL
+        sequence to bravos.broker.bootstrap.connect_and_prepare (Session 4a,
+        item 7 — single home for the sequence every full-sequence caller used
+        to duplicate). Imported lazily (call-time) to avoid a module-level
+        import cycle: bootstrap.py imports connection.py at module level, so
+        connection.py cannot import bootstrap.py at module level in return.
 
         Deliberately does NOT restart the heartbeat monitor thread: it
         survives a disconnect (its loop just `continue`s while _connected is
         clear), so calling that startup method again here would spawn a
-        duplicate background thread.
+        duplicate background thread. connect_and_prepare guarantees this
+        (see tests/test_bootstrap.py::test_does_not_start_heartbeat).
         """
-        try:
-            db_conn = self._open_short_lived_db_conn()
-            try:
-                self.run_startup_reconciliation(db_conn, timeout=30)
-            finally:
-                db_conn.close()
-        except Exception:
-            logger.exception(
-                "Reconnect: startup reconciliation failed — account summary may be stale"
-            )
-
-        try:
-            self._db_conn = self._open_short_lived_db_conn()
-        except Exception:
-            logger.exception("Reconnect: failed to open DB connection for fill callbacks")
-            self._db_conn = None
-
-        # Fill replay (IMPROVEMENTS item 16) — mirrors run_ingestion._connect_ibkr. Runs after
-        # _db_conn is set so replayed execDetails callbacks are not dropped. Kept in sync
-        # manually (see Session 4a / item 7 to deduplicate).
-        try:
-            self.replay_todays_fills()
-        except Exception:
-            logger.exception("Reconnect: fill replay failed — continuing")
-
-        if self._account_name:
-            try:
-                self.reqPnL(REQ_ID_PNL, self._account_name, "")
-                logger.info(
-                    "Reconnect: reqPnL re-subscribed — account=%s", self._account_name
-                )
-            except Exception:
-                logger.exception(
-                    "Reconnect: reqPnL re-subscription failed — circuit breaker will fail-open"
-                )
-        else:
-            logger.warning("Reconnect: _account_name empty — skipping reqPnL re-subscription")
+        from bravos.broker.bootstrap import connect_and_prepare
+        connect_and_prepare(self, pnl_req_id=REQ_ID_PNL)
 
     # ── Plan 03-3: run_startup_reconciliation ─────────────────────────────
 

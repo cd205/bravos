@@ -16,7 +16,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import bravos.broker.connection as broker_module
 from bravos import runtime
-from bravos.broker.connection import IBApp
+from bravos.broker.bootstrap import connect_and_prepare
+from bravos.broker.connection import IBApp, REQ_ID_PNL
 from bravos.config import settings
 from bravos.db import get_connection
 from bravos.execution.executor import execute_signal
@@ -28,7 +29,10 @@ logging.basicConfig(
 logger = logging.getLogger("execute_pending")
 
 VALID_ACTIONS = ("open", "add", "partial_close", "close")
-REQ_ID_PNL = 9003  # distinct from daemon's 9002 to avoid collision
+# reqId namespace is per-client connection (this script uses client_id=2,
+# distinct from the daemon's client_id=1) — 9002 does not collide across
+# distinct client connections, so the shared REQ_ID_PNL (imported above) is
+# safe here (Session 4a, item 7 — was a locally-defined 9003 before).
 
 
 def get_pending_signals(conn, since: str) -> list[dict]:
@@ -92,33 +96,15 @@ def main():
         logger.error("Could not connect to IB Gateway — aborting")
         sys.exit(1)
 
-    # Run startup reconciliation — this fetches positions, open orders, AND
-    # account summary (NetLiquidation) which _calculate_quantity needs to size orders.
-    try:
-        recon_conn = _get_db_connection()
-        ibapp.run_startup_reconciliation(recon_conn, timeout=30)
-        recon_conn.close()
-        logger.info(
-            "Account summary: NLV=%s",
-            (ibapp._account_summary or {}).get("NetLiquidation", "unknown"),
-        )
-    except Exception:
-        logger.exception("Startup reconciliation failed — NLV may be unavailable, quantities may be 0")
-
-    # Install fill-callback DB connection
-    try:
-        ibapp._db_conn = _get_db_connection()
-    except Exception:
-        logger.warning("Could not open fill-callback DB connection — fills won't be recorded")
-        ibapp._db_conn = None
-
-    # Subscribe to PnL for risk gate circuit breaker
-    if ibapp._account_name:
-        try:
-            ibapp.reqPnL(REQ_ID_PNL, ibapp._account_name, "")
-            logger.info("reqPnL subscription started — account=%s", ibapp._account_name)
-        except Exception:
-            logger.warning("reqPnL failed — circuit breaker will fail-open")
+    # Shared reconcile -> _db_conn -> replay -> reqPnL sequence (Session 4a,
+    # item 7 — single home in bravos.broker.bootstrap). This also fetches
+    # positions, open orders, and account summary (NetLiquidation) which
+    # _calculate_quantity needs to size orders.
+    connect_and_prepare(ibapp, pnl_req_id=REQ_ID_PNL)
+    logger.info(
+        "Account summary: NLV=%s",
+        (ibapp._account_summary or {}).get("NetLiquidation", "unknown"),
+    )
 
     logger.info("IB Gateway ready")
 
