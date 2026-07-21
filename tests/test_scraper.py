@@ -111,14 +111,15 @@ def test_no_update_on_duplicate():
     assert "DO NOTHING" in source
 
 
-def test_process_alert_queues_signal_when_paused(monkeypatch):
-    """Session 2b: pause state read from bravos.runtime, not scripts.run_ingestion."""
-    import queue as queue_mod
-    from bravos import runtime
-    from bravos.ingestion.scraper import BravosScraper
-    test_q = queue_mod.Queue()
-    monkeypatch.setattr(runtime, "ibkr_paused", True)
-    monkeypatch.setattr(runtime, "paused_signal_queue", test_q)
+def test_process_alert_new_high_confidence_does_not_execute_or_read_pause(monkeypatch):
+    """Session 4b: scraper is pure ingestion — no execute_signal call, no pause read.
+
+    Replaces the old test_process_alert_queues_signal_when_paused /
+    test_process_alert_executes_when_not_paused (which tested execution FROM
+    the scraper). The queue-or-execute decision now lives in
+    run_ingestion._handle_alert_url — see tests/test_ingestion.py.
+    """
+    from bravos.ingestion.scraper import AlertResult, BravosScraper
     s = BravosScraper()
     s.driver = MagicMock()
     with patch.object(s, "_check_session", return_value=True), \
@@ -127,34 +128,16 @@ def test_process_alert_queues_signal_when_paused(monkeypatch):
          patch("bravos.ingestion.scraper.parse_signal", return_value={"confidence": "high", "ticker": "EME"}), \
          patch("bravos.notifications.notifier.record_parse_outcome"), \
          patch("bravos.execution.executor.execute_signal") as mock_exec:
-        s.process_alert("https://x.com/p/")
-    assert test_q.get_nowait() == 123
+        result = s.process_alert("https://x.com/p/")
+    assert result == AlertResult("stored", 123, True, "high")
     mock_exec.assert_not_called()
 
 
-def test_process_alert_executes_when_not_paused(monkeypatch):
-    """Not paused → execute path (execute_signal called with the new signal id)."""
-    from bravos import runtime
-    from bravos.ingestion.scraper import BravosScraper
-    monkeypatch.setattr(runtime, "ibkr_paused", False)
-    s = BravosScraper()
-    s.driver = MagicMock()
-    with patch.object(s, "_check_session", return_value=True), \
-         patch.object(s, "fetch_post", return_value={"title": "t", "url": "u2", "raw_html": "", "text": ""}), \
-         patch.object(s, "_store_signal", return_value=(124, True)), \
-         patch("bravos.ingestion.scraper.parse_signal", return_value={"confidence": "high", "ticker": "EME"}), \
-         patch("bravos.notifications.notifier.record_parse_outcome"), \
-         patch("bravos.execution.executor.execute_signal") as mock_exec, \
-         patch("psycopg2.connect", return_value=MagicMock()):
-        s.process_alert("https://x.com/p/2")
-    mock_exec.assert_called_once()
-    assert mock_exec.call_args[0][0] == 124
-
-
-# ── Session 2c: process_alert explicit result contract (IMPROVEMENTS.md item 17) ──
+# ── Session 2c/4b: process_alert explicit AlertResult contract ─────────────
+# (IMPROVEMENTS.md item 17, extended by item 8 to a structured result)
 
 def test_process_alert_returns_duplicate_on_dedup():
-    """_store_signal returning is_new=False -> 'duplicate', no execute_signal touch."""
+    """_store_signal returning is_new=False -> result='duplicate', no execute_signal touch."""
     from bravos.ingestion.scraper import BravosScraper
     s = BravosScraper()
     s.driver = MagicMock()
@@ -165,12 +148,14 @@ def test_process_alert_returns_duplicate_on_dedup():
          patch("bravos.notifications.notifier.record_parse_outcome"), \
          patch("bravos.execution.executor.execute_signal") as mock_exec:
         result = s.process_alert("https://x.com/dup/")
-    assert result == "duplicate"
+    assert result.result == "duplicate"
+    assert result.is_new is False
+    assert result.signal_id == 55
     mock_exec.assert_not_called()
 
 
 def test_process_alert_returns_stored_low_confidence_no_execution():
-    """New row, low confidence -> 'stored' even though execute_signal is never called."""
+    """New row, low confidence -> result='stored' even though execute_signal is never called."""
     from bravos.ingestion.scraper import BravosScraper
     s = BravosScraper()
     s.driver = MagicMock()
@@ -181,23 +166,25 @@ def test_process_alert_returns_stored_low_confidence_no_execution():
          patch("bravos.notifications.notifier.record_parse_outcome"), \
          patch("bravos.execution.executor.execute_signal") as mock_exec:
         result = s.process_alert("https://x.com/low/")
-    assert result == "stored"
+    assert result.result == "stored"
+    assert result.confidence == "low"
     mock_exec.assert_not_called()
 
 
 def test_process_alert_returns_failed_on_fetch_raise():
-    """fetch_post raising -> 'failed', never propagates."""
+    """fetch_post raising -> result='failed', never propagates."""
     from bravos.ingestion.scraper import BravosScraper
     s = BravosScraper()
     s.driver = MagicMock()
     with patch.object(s, "_check_session", return_value=True), \
          patch.object(s, "fetch_post", side_effect=RuntimeError("boom")):
         result = s.process_alert("https://x.com/err/")
-    assert result == "failed"
+    assert result.result == "failed"
+    assert result.signal_id is None
 
 
 def test_process_alert_returns_failed_on_reauth_failure():
-    """Session expired and re-login fails -> 'failed', fetch_post never called."""
+    """Session expired and re-login fails -> result='failed', fetch_post never called."""
     from bravos.ingestion.scraper import BravosScraper
     s = BravosScraper()
     s.driver = MagicMock()
@@ -205,5 +192,19 @@ def test_process_alert_returns_failed_on_reauth_failure():
          patch.object(s, "_login", return_value=False), \
          patch.object(s, "fetch_post") as mock_fetch:
         result = s.process_alert("https://x.com/reauth-fail/")
-    assert result == "failed"
+    assert result.result == "failed"
     mock_fetch.assert_not_called()
+
+
+def test_scraper_has_no_execution_import():
+    """Grep-style guard: scraper.py source contains no execution-layer coupling.
+
+    Mirrors Task 3's GATE 1 (bravos.execution import / execute_signal call)
+    as a unit test so a regression fails fast in the normal test run, not
+    only in the verification script.
+    """
+    import inspect
+    import bravos.ingestion.scraper as scraper_module
+    source = inspect.getsource(scraper_module)
+    assert "bravos.execution" not in source
+    assert "execute_signal" not in source

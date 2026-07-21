@@ -14,7 +14,7 @@ run_cycle crash-safety / self-healing (quick-260708-7lk):
   recovery" section at the bottom of this file.
 """
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 
 def test_dedup_on_conflict(db_connection):
@@ -149,26 +149,33 @@ def test_run_cycle_alerts_after_threshold_failures(monkeypatch):
     assert alert_mock.called is True
 
 
-# ── _handle_alert_url socket seam (Session 2c, IMPROVEMENTS.md item 17) ─────
+# ── _handle_alert_url socket seam (Session 2c item 17, extended 4b item 8) ──
 # Pure-mock: monkeypatch daemon._scraper directly, no real Chrome/DB.
+# Session 4b: process_alert now returns an AlertResult (result/signal_id/
+# is_new/confidence); _handle_alert_url also owns the queue-or-execute
+# routing decision previously embedded in scraper.process_alert.
+
+from bravos import runtime
+from bravos.ingestion.scraper import AlertResult
+
 
 def test_handle_alert_url_ok_on_stored(monkeypatch):
     fake = MagicMock()
-    fake.process_alert.return_value = "stored"
+    fake.process_alert.return_value = AlertResult("stored", 1, True, "low")
     monkeypatch.setattr(daemon, "_scraper", fake)
     assert daemon._handle_alert_url("https://x.com/a/") == "OK"
 
 
 def test_handle_alert_url_ok_on_duplicate(monkeypatch):
     fake = MagicMock()
-    fake.process_alert.return_value = "duplicate"
+    fake.process_alert.return_value = AlertResult("duplicate", 5, False, "high")
     monkeypatch.setattr(daemon, "_scraper", fake)
     assert daemon._handle_alert_url("https://x.com/a/") == "OK"
 
 
 def test_handle_alert_url_err_on_failed(monkeypatch):
     fake = MagicMock()
-    fake.process_alert.return_value = "failed"
+    fake.process_alert.return_value = AlertResult("failed", None, False, None)
     monkeypatch.setattr(daemon, "_scraper", fake)
     result = daemon._handle_alert_url("https://x.com/a/")
     assert result.startswith("ERR")
@@ -195,3 +202,66 @@ def test_handle_alert_url_err_when_scraper_not_ready(monkeypatch):
     monkeypatch.setattr(daemon, "_scraper", None)
     result = daemon._handle_alert_url("https://x.com/a/")
     assert result == "ERR scraper not ready"
+
+
+# ── _handle_alert_url queue-or-execute routing (Session 4b, item 8) ────────
+
+def test_handle_alert_url_executes_new_high_confidence_when_not_paused(monkeypatch):
+    fake = MagicMock()
+    fake.process_alert.return_value = AlertResult("stored", 200, True, "high")
+    monkeypatch.setattr(daemon, "_scraper", fake)
+    monkeypatch.setattr(runtime, "ibkr_paused", False)
+    with patch("bravos.execution.executor.execute_signal") as mock_exec, \
+         patch.object(daemon, "get_connection", return_value=MagicMock()):
+        result = daemon._handle_alert_url("https://x.com/a/")
+    mock_exec.assert_called_once()
+    assert mock_exec.call_args[0][0] == 200
+    assert result == "OK"
+
+
+def test_handle_alert_url_queues_when_paused(monkeypatch):
+    import queue as queue_mod
+    fake = MagicMock()
+    fake.process_alert.return_value = AlertResult("stored", 201, True, "high")
+    monkeypatch.setattr(daemon, "_scraper", fake)
+    monkeypatch.setattr(runtime, "ibkr_paused", True)
+    test_q = queue_mod.Queue()
+    monkeypatch.setattr(runtime, "paused_signal_queue", test_q)
+    with patch("bravos.execution.executor.execute_signal") as mock_exec:
+        result = daemon._handle_alert_url("https://x.com/a/")
+    assert test_q.get_nowait() == 201
+    mock_exec.assert_not_called()
+    assert result == "OK"
+
+
+def test_handle_alert_url_no_execution_on_duplicate(monkeypatch):
+    fake = MagicMock()
+    fake.process_alert.return_value = AlertResult("duplicate", 5, False, "high")
+    monkeypatch.setattr(daemon, "_scraper", fake)
+    monkeypatch.setattr(runtime, "ibkr_paused", False)
+    with patch("bravos.execution.executor.execute_signal") as mock_exec:
+        result = daemon._handle_alert_url("https://x.com/a/")
+    mock_exec.assert_not_called()
+    assert result == "OK"
+
+
+def test_handle_alert_url_no_execution_on_low_confidence(monkeypatch):
+    fake = MagicMock()
+    fake.process_alert.return_value = AlertResult("stored", 6, True, "low")
+    monkeypatch.setattr(daemon, "_scraper", fake)
+    monkeypatch.setattr(runtime, "ibkr_paused", False)
+    with patch("bravos.execution.executor.execute_signal") as mock_exec:
+        result = daemon._handle_alert_url("https://x.com/a/")
+    mock_exec.assert_not_called()
+    assert result == "OK"
+
+
+def test_handle_alert_url_ok_even_when_execute_raises(monkeypatch):
+    fake = MagicMock()
+    fake.process_alert.return_value = AlertResult("stored", 7, True, "high")
+    monkeypatch.setattr(daemon, "_scraper", fake)
+    monkeypatch.setattr(runtime, "ibkr_paused", False)
+    with patch("bravos.execution.executor.execute_signal", side_effect=RuntimeError("boom")), \
+         patch.object(daemon, "get_connection", return_value=MagicMock()):
+        result = daemon._handle_alert_url("https://x.com/a/")
+    assert result == "OK"
