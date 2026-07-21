@@ -84,7 +84,7 @@ REQ_ID_ACCOUNT_SUMMARY = 9001
 # reqId used for reqPnL. Single home (Session 4a, item 7) — all callers
 # (run_ingestion, execute_pending, validate_pipeline, connection._refresh_after_connect)
 # import this constant rather than redefining it. Must not collide with
-# REQ_ID_ACCOUNT_SUMMARY=9001 above.
+# REQ_ID_ACCOUNT_SUMMARY (9001, above).
 REQ_ID_PNL = 9002
 
 # reqId used for reqExecutions on (re)connect fill-replay (IMPROVEMENTS item 16).
@@ -145,7 +145,7 @@ class IBApp(EWrapper, EClient):
         # ── Phase 4: price-tick routing (for executor._fetch_price) ──────
         self._tick_events: dict[int, dict] = {}
         self._tick_lock = threading.Lock()
-        self._mkt_req_counter = 2000  # avoids collision with REQ_ID_ACCOUNT_SUMMARY=9001
+        self._mkt_req_counter = 2000  # avoids collision with the 9001-9004 REQ_ID_* constants
 
         # ── Phase 4: order-status routing (for executor._submit_order) ───
         self._order_status_events: dict[int, dict] = {}
