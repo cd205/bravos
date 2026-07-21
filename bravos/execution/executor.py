@@ -276,12 +276,71 @@ def _calculate_quantity(signal: dict, action_type: str, db_conn, ibapp, current_
     return int(raw_qty)  # int() rounds toward zero (floor for non-negatives)
 
 
-# ── Order submission ───────────────────────────────────────────────────────
+# ── Order submission — shared primitives ────────────────────────────────────
+# Session 3 (item 6/3b): the write/place/wait/resolve/update protocol lives
+# once here, consumed by both _submit_order (plain) and _submit_bracket_order.
+
+def _insert_order_row(
+    cur, *, signal_id, ibkr_order_id, ticker, action, quantity, order_type,
+    parent_order_id=None, oca_group=None,
+) -> int:
+    """
+    INSERT ... RETURNING id, reproducing the EXACT column lists and literal
+    'PENDING_SUBMISSION' / NOW() from both submit paths (behaviour +
+    schema-identical). Takes a cursor (not a connection) so the bracket path
+    can batch all N+2 inserts in one transaction exactly as before; the plain
+    path calls this with its own cursor then commits.
+
+    When parent_order_id/oca_group are None, uses the plain 8-column form.
+    When provided, uses the 10-column form adding parent_order_id + oca_group.
+    """
+    if parent_order_id is None and oca_group is None:
+        cur.execute(
+            """
+            INSERT INTO orders
+              (signal_id, ibkr_order_id, ticker, action, quantity,
+               order_type, status, submitted_at)
+            VALUES (%s, %s, %s, %s, %s, %s, 'PENDING_SUBMISSION', NOW())
+            RETURNING id
+            """,
+            (signal_id, ibkr_order_id, ticker, action, quantity, order_type),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO orders
+              (signal_id, ibkr_order_id, ticker, action, quantity,
+               order_type, status, submitted_at, parent_order_id, oca_group)
+            VALUES (%s, %s, %s, %s, %s, %s, 'PENDING_SUBMISSION', NOW(), %s, %s)
+            RETURNING id
+            """,
+            (signal_id, ibkr_order_id, ticker, action, quantity, order_type,
+             parent_order_id, oca_group),
+        )
+    row = cur.fetchone()
+    return row[0]
+
+
+def _finalize_order_status(db_conn, *, db_status, target_column, target_value) -> None:
+    """
+    Shared single-statement UPDATE + commit for the final status write.
+
+    The two current UPDATEs differ only in the WHERE target: plain uses
+    `WHERE id = %s`, bracket parent uses `WHERE ibkr_order_id = %s`. Preserve
+    the exact SQL otherwise (single UPDATE, single commit).
+    """
+    with db_conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE orders SET status = %s WHERE {target_column} = %s",
+            (db_status, target_value),
+        )
+    db_conn.commit()
+
 
 def _submit_order(ibapp, signal_id: int, ticker: str, action: str, quantity: int, db_conn) -> str:
     """
-    Write the orders row, register the status event, call placeOrder, wait for the
-    orderStatus callback, and update the DB row to the final status.
+    Write the orders row, place + wait via the IBApp order-slot seam, and
+    update the DB row to the final status.
 
     Returns the final DB status string: 'SUBMITTED' only for a real
     PreSubmitted/Submitted callback, 'REJECTED' for an Inactive callback or an
@@ -300,17 +359,10 @@ def _submit_order(ibapp, signal_id: int, ticker: str, action: str, quantity: int
 
     # 1. Write PENDING_SUBMISSION FIRST (D-08)
     with db_conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO orders
-              (signal_id, ibkr_order_id, ticker, action, quantity,
-               order_type, status, submitted_at)
-            VALUES (%s, %s, %s, %s, %s, 'MKT', 'PENDING_SUBMISSION', NOW())
-            RETURNING id
-            """,
-            (signal_id, order_id, ticker, action, quantity),
+        db_order_id = _insert_order_row(
+            cur, signal_id=signal_id, ibkr_order_id=order_id, ticker=ticker,
+            action=action, quantity=quantity, order_type="MKT",
         )
-        db_order_id = cur.fetchone()[0]
     db_conn.commit()
 
     # 2. Place + wait via the IBApp order-slot seam (Task 1) — register-slot,
@@ -321,12 +373,7 @@ def _submit_order(ibapp, signal_id: int, ticker: str, action: str, quantity: int
 
     # 3. Map OrderResult → DB status and update the row.
     db_status = _resolve_db_status(result, order_id)
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "UPDATE orders SET status = %s WHERE id = %s",
-            (db_status, db_order_id),
-        )
-    db_conn.commit()
+    _finalize_order_status(db_conn, db_status=db_status, target_column="id", target_value=db_order_id)
     return db_status
 
 
@@ -371,46 +418,29 @@ def _submit_bracket_order(
     # Now an INSERT failure rolls back the entire transaction cleanly.
     with db_conn.cursor() as cur:
         # 1a. Parent MKT order (D-08 pattern)
-        cur.execute(
-            """
-            INSERT INTO orders
-              (signal_id, ibkr_order_id, ticker, action, quantity,
-               order_type, status, submitted_at)
-            VALUES (%s, %s, %s, %s, %s, 'MKT', 'PENDING_SUBMISSION', NOW())
-            RETURNING id
-            """,
-            (signal_id, parent_ibkr_id, ticker, action, quantity),
+        db_parent_order_id = _insert_order_row(
+            cur, signal_id=signal_id, ibkr_order_id=parent_ibkr_id, ticker=ticker,
+            action=action, quantity=quantity, order_type="MKT",
         )
-        db_parent_order_id = cur.fetchone()[0]
 
         # 1b. STP child — included in the same OCA group as TPs (WR-01).
         # OCA type 2 (REDUCE_WITH_BLOCK) causes IBKR to reduce the STP quantity
         # proportionally as TP orders fill, preventing an oversell if all TPs fill
         # before the stop triggers.
-        cur.execute(
-            """
-            INSERT INTO orders
-              (signal_id, ibkr_order_id, ticker, action, quantity,
-               order_type, status, submitted_at, parent_order_id, oca_group)
-            VALUES (%s, %s, %s, %s, %s, 'STP', 'PENDING_SUBMISSION', NOW(), %s, %s)
-            """,
-            (signal_id, stp_ibkr_id, ticker, child_action, quantity, db_parent_order_id,
-             oca_group),
+        _insert_order_row(
+            cur, signal_id=signal_id, ibkr_order_id=stp_ibkr_id, ticker=ticker,
+            action=child_action, quantity=quantity, order_type="STP",
+            parent_order_id=db_parent_order_id, oca_group=oca_group,
         )
 
         # 1c. LMT TP children — each gets oca_group (D-16)
         for i, tp_price in enumerate(take_profits):
             is_last = (i == n - 1)
             tp_qty = base_qty if not is_last else quantity - (n - 1) * base_qty  # D-11 remainder rule
-            cur.execute(
-                """
-                INSERT INTO orders
-                  (signal_id, ibkr_order_id, ticker, action, quantity,
-                   order_type, status, submitted_at, parent_order_id, oca_group)
-                VALUES (%s, %s, %s, %s, %s, 'LMT', 'PENDING_SUBMISSION', NOW(), %s, %s)
-                """,
-                (signal_id, tp_ibkr_ids[i], ticker, child_action, tp_qty,
-                 db_parent_order_id, oca_group),
+            _insert_order_row(
+                cur, signal_id=signal_id, ibkr_order_id=tp_ibkr_ids[i], ticker=ticker,
+                action=child_action, quantity=tp_qty, order_type="LMT",
+                parent_order_id=db_parent_order_id, oca_group=oca_group,
             )
     db_conn.commit()  # single commit after ALL N+2 INSERTs succeed
 
@@ -479,12 +509,9 @@ def _submit_bracket_order(
 
     # 3. Map OrderResult → DB status and update the parent row
     db_status = _resolve_db_status(result, parent_ibkr_id)
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "UPDATE orders SET status = %s WHERE ibkr_order_id = %s",
-            (db_status, parent_ibkr_id),
-        )
-    db_conn.commit()
+    _finalize_order_status(
+        db_conn, db_status=db_status, target_column="ibkr_order_id", target_value=parent_ibkr_id,
+    )
 
     # WR-02: Update child (STP + TP) rows from PENDING_SUBMISSION to SUBMITTED —
     # but ONLY when the parent itself is genuinely SUBMITTED. If the parent was
