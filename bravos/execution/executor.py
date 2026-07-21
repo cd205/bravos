@@ -17,20 +17,20 @@ Sequence:
   8. Update orders row to SUBMITTED / REJECTED / UNKNOWN
 
 Threading: ibapi callbacks (tickPrice, orderStatus, error) fire on the api
-thread and wake this thread via threading.Event registered in
-ibapp._tick_events / ibapp._order_status_events (slots installed by Plan
-04-02 callbacks). A rejection can arrive via error() (reqId == orderId,
-orderStatus never fires) as well as via orderStatus itself — see
-_resolve_db_status. SUBMITTED is only ever assigned when a real
-PreSubmitted/Submitted callback was observed; a genuine timeout (no
-orderStatus and no error callback) records UNKNOWN, never SUBMITTED.
+thread and wake this thread via threading.Event, routed through IBApp's
+public seam (fetch_delayed_price / place_order_and_wait / the
+register+await order-slot pair — Session 3, item 4/3a). A rejection can
+arrive via error() (reqId == orderId, orderStatus never fires) as well as
+via orderStatus itself — see _resolve_db_status. SUBMITTED is only ever
+assigned when a real PreSubmitted/Submitted callback was observed; a
+genuine timeout (no orderStatus and no error callback) records UNKNOWN,
+never SUBMITTED.
 """
 import logging
-import threading
 
-from ibapi.contract import Contract
 from ibapi.order import Order
 
+from bravos.broker.connection import OrderResult, build_contract
 from bravos.config.settings import WEIGHT_PCT_PER_UNIT
 from bravos.risk.gate import RiskGate
 
@@ -64,33 +64,33 @@ _STATUS_MAP = {
 _gate = RiskGate()
 
 
-def _resolve_db_status(slot: dict, order_id) -> str:
+def _resolve_db_status(result: OrderResult, order_id) -> str:
     """
-    Map a resolved _order_status_events slot to a DB orders.status value.
+    Map an OrderResult (from ibapp.place_order_and_wait /
+    ibapp._await_registered_order) to a DB orders.status value.
 
-    - {"status": "IBKR_ERROR"} -> REJECTED (IBKR rejected via error() callback)
-    - real IBKR status string   -> _STATUS_MAP (PreSubmitted/Submitted -> SUBMITTED,
-                                   Inactive -> REJECTED)
-    - None (event never fired)  -> UNKNOWN (order state unverified)
+    - result.kind == "ibkr_error" -> REJECTED (IBKR rejected via error() callback)
+    - result.kind == "timeout"    -> UNKNOWN (order state unverified)
+    - result.kind == "callback"   -> _STATUS_MAP (PreSubmitted/Submitted -> SUBMITTED,
+                                     Inactive -> REJECTED)
 
     Never returns SUBMITTED unless a real PreSubmitted/Submitted callback
     was observed. Logs at ERROR for REJECTED and UNKNOWN so both are alertable.
     """
-    raw = slot.get("status")
-    if raw == "IBKR_ERROR":
+    if result.kind == "ibkr_error":
         logger.error(
             "order_id=%s REJECTED by IBKR: code=%s message=%s",
-            order_id, slot.get("code"), slot.get("message"),
+            order_id, result.code, result.message,
         )
         return "REJECTED"
-    if raw is None:
+    if result.kind == "timeout":
         logger.error(
             "order_id=%s status UNVERIFIED — no orderStatus and no error "
             "callback within %ss; recording UNKNOWN. Check TWS manually.",
             order_id, ORDER_STATUS_TIMEOUT,
         )
         return "UNKNOWN"
-    return _STATUS_MAP.get(raw, "UNKNOWN")
+    return _STATUS_MAP.get(result.status_str, "UNKNOWN")
 
 
 # ── Public entry point ─────────────────────────────────────────────────────
@@ -151,7 +151,7 @@ def execute_signal(signal_id: int, db_conn) -> None:
 
     # Price fetch (D-05/D-06)
     ticker = signal["ticker"]
-    price = _fetch_price(ticker, ibapp)
+    price = ibapp.fetch_delayed_price(ticker)
     if price is None:
         ref = signal.get("reference_price")
         if ref is None:
@@ -213,53 +213,10 @@ def execute_signal(signal_id: int, db_conn) -> None:
     )
 
 
-# ── Price fetch ────────────────────────────────────────────────────────────
-
-def _fetch_price(ticker: str, ibapp) -> float | None:
-    """
-    Fetch a delayed market price for `ticker`. Returns None on timeout.
-
-    Uses reqMarketDataType(3) for delayed data (no live data subscription needed).
-    Waits up to PRICE_WAIT_TIMEOUT seconds for a tick (types 4, 9, 68, 76) via
-    threading.Event registered in ibapp._tick_events[req_id].
-
-    Always cancels the subscription in finally — uses ibapp.cancelMktData
-    (NOT the deprecated cancel method — see RESEARCH Pitfall 1).
-    """
-    contract = _build_contract(ticker)
-
-    # Allocate a req_id under the lock to avoid races with other executors
-    with ibapp._tick_lock:
-        req_id = ibapp._mkt_req_counter
-        ibapp._mkt_req_counter += 1
-        slot = {"event": threading.Event(), "price": None}
-        ibapp._tick_events[req_id] = slot
-
-    try:
-        ibapp.reqMarketDataType(3)
-        ibapp.reqMktData(req_id, contract, "", False, False, [])
-        got = slot["event"].wait(timeout=PRICE_WAIT_TIMEOUT)
-        return slot["price"] if got else None
-    finally:
-        try:
-            ibapp.cancelMktData(req_id)
-        except Exception:
-            logger.warning("cancelMktData(%s) raised — continuing", req_id, exc_info=True)
-        with ibapp._tick_lock:
-            ibapp._tick_events.pop(req_id, None)
-
-
 # ── Order build helpers ────────────────────────────────────────────────────
-
-def _build_contract(ticker: str) -> Contract:
-    """Build a STK SMART USD contract (equities, v1 scope)."""
-    contract = Contract()
-    contract.symbol = ticker
-    contract.secType = "STK"
-    contract.exchange = "SMART"
-    contract.currency = "USD"
-    return contract
-
+# Price fetch (_fetch_price) and contract construction (_build_contract) moved
+# to bravos.broker.connection (ibapp.fetch_delayed_price / build_contract) —
+# item 4/3a. Callers below use the public API directly.
 
 def _build_order(action: str, quantity: int) -> Order:
     """Build a MKT DAY order. `action` must be 'BUY' or 'SELL' (EXEC-02)."""
@@ -305,11 +262,11 @@ def _calculate_quantity(signal: dict, action_type: str, db_conn, ibapp, current_
             row = cur.fetchone()
         return int(row[0]) if row and row[0] is not None else 0
 
-    nlv_raw = (ibapp._account_summary or {}).get("NetLiquidation", "0")
-    try:
-        nlv = float(nlv_raw)
-    except (TypeError, ValueError):
-        logger.error("NetLiquidation not float-castable: %r", nlv_raw)
+    # NLV parse (missing/unparseable) now lives in IBApp.get_nlv (logs WARNING there);
+    # preserve behaviour here: missing/unparseable NLV -> quantity 0.
+    nlv = ibapp.get_nlv()
+    if nlv is None:
+        logger.error("get_nlv() returned None — cannot size order")
         return 0
 
     weight_to = signal.get("weight_to") or 0
@@ -356,27 +313,14 @@ def _submit_order(ibapp, signal_id: int, ticker: str, action: str, quantity: int
         db_order_id = cur.fetchone()[0]
     db_conn.commit()
 
-    # 2. Register status event BEFORE placeOrder to avoid race with fast callback
-    status_slot = {"event": threading.Event(), "status": None}
-    ibapp._order_status_events[order_id] = status_slot
+    # 2. Place + wait via the IBApp order-slot seam (Task 1) — register-slot,
+    # placeOrder, await-slot all live in connection.py now.
+    contract = build_contract(ticker)
+    order = _build_order(action, quantity)
+    result = ibapp.place_order_and_wait(order_id, contract, order, timeout=ORDER_STATUS_TIMEOUT)
 
-    try:
-        contract = _build_contract(ticker)
-        order = _build_order(action, quantity)
-        ibapp.placeOrder(order_id, contract, order)
-        got = status_slot["event"].wait(timeout=ORDER_STATUS_TIMEOUT)
-        if not got:
-            logger.warning(
-                "orderStatus callback timed out for order_id=%s — status unverified",
-                order_id,
-            )
-    finally:
-        ibapp._order_status_events.pop(order_id, None)
-
-    # 3. Map slot result → DB status and update the row. status_slot is the
-    # same dict object stored in the map, so reading it after the pop above
-    # is safe.
-    db_status = _resolve_db_status(status_slot, order_id)
+    # 3. Map OrderResult → DB status and update the row.
+    db_status = _resolve_db_status(result, order_id)
     with db_conn.cursor() as cur:
         cur.execute(
             "UPDATE orders SET status = %s WHERE id = %s",
@@ -471,7 +415,7 @@ def _submit_bracket_order(
     db_conn.commit()  # single commit after ALL N+2 INSERTs succeed
 
     # Build contract and order objects
-    contract = _build_contract(ticker)
+    contract = build_contract(ticker)
 
     # Parent: MKT, transmit=False (D-14)
     # error 10268 guard — see _build_order (ibapi 9.81 eTradeOnly/firmQuoteOnly default True)
@@ -518,29 +462,23 @@ def _submit_bracket_order(
         tp_order.firmQuoteOnly = False
         tp_orders.append(tp_order)
 
-    # 2. Register status event for parent BEFORE placeOrder (copy _submit_order pattern)
-    status_slot = {"event": threading.Event(), "status": None}
-    ibapp._order_status_events[int(parent_ibkr_id)] = status_slot
+    # 2. Register status event for parent BEFORE placeOrder — via the IBApp
+    # order-slot seam (Task 1). The bracket cannot use the atomic
+    # place_order_and_wait because it must place all N+2 orders BEFORE
+    # waiting (last TP transmit=True is what fires the whole bracket).
+    ibapp._register_order_slot(int(parent_ibkr_id))
 
-    try:
-        # Submission order: parent → STP → TP[0..N-2] → TP[N-1] (transmit=True fires all)
-        ibapp.placeOrder(int(parent_ibkr_id), contract, parent_order)
-        ibapp.placeOrder(stp_ibkr_id, contract, stp_order)
-        for i, tp_order in enumerate(tp_orders):
-            ibapp.placeOrder(tp_ibkr_ids[i], contract, tp_order)
+    # Submission order: parent → STP → TP[0..N-2] → TP[N-1] (transmit=True fires all)
+    ibapp.placeOrder(int(parent_ibkr_id), contract, parent_order)
+    ibapp.placeOrder(stp_ibkr_id, contract, stp_order)
+    for i, tp_order in enumerate(tp_orders):
+        ibapp.placeOrder(tp_ibkr_ids[i], contract, tp_order)
 
-        # Wait on parent status (copy _submit_order pattern exactly)
-        got = status_slot["event"].wait(timeout=ORDER_STATUS_TIMEOUT)
-        if not got:
-            logger.warning(
-                "orderStatus callback timed out for bracket parent order_id=%s — status unverified",
-                parent_ibkr_id,
-            )
-    finally:
-        ibapp._order_status_events.pop(int(parent_ibkr_id), None)
+    # Await parent status via the seam (pops the slot internally)
+    result = ibapp._await_registered_order(int(parent_ibkr_id), timeout=ORDER_STATUS_TIMEOUT)
 
-    # 3. Map slot result → DB status and update the parent row (copy _submit_order pattern)
-    db_status = _resolve_db_status(status_slot, parent_ibkr_id)
+    # 3. Map OrderResult → DB status and update the parent row
+    db_status = _resolve_db_status(result, parent_ibkr_id)
     with db_conn.cursor() as cur:
         cur.execute(
             "UPDATE orders SET status = %s WHERE ibkr_order_id = %s",

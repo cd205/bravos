@@ -54,7 +54,8 @@ def test_gate_max_positions():
         (25,),  # open positions count
     ]
     mock_ibapp = MagicMock()
-    mock_ibapp._daily_pnl = 0.0
+    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl().
+    mock_ibapp.get_daily_pnl.return_value = 0.0
     with patch("bravos.risk.gate._is_market_hours", return_value=True):
         passed, reason = gate.check(signal_id=1, db_conn=mock_conn, ibapp=mock_ibapp)
     assert passed is False
@@ -74,7 +75,8 @@ def test_gate_max_allocation():
         (0,),  # zero open positions — that check passes
     ]
     mock_ibapp = MagicMock()
-    mock_ibapp._daily_pnl = 0.0
+    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl().
+    mock_ibapp.get_daily_pnl.return_value = 0.0
     with patch("bravos.risk.gate._is_market_hours", return_value=True):
         passed, reason = gate.check(signal_id=1, db_conn=mock_conn, ibapp=mock_ibapp)
     assert passed is False
@@ -93,7 +95,8 @@ def test_gate_circuit_breaker():
         (0,),  # open positions
     ]
     mock_ibapp = MagicMock()
-    mock_ibapp._daily_pnl = -6000.0  # below default -5000 threshold
+    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl().
+    mock_ibapp.get_daily_pnl.return_value = -6000.0  # below default -5000 threshold
     with patch("bravos.risk.gate._is_market_hours", return_value=True):
         passed, reason = gate.check(signal_id=1, db_conn=mock_conn, ibapp=mock_ibapp)
     assert passed is False
@@ -112,7 +115,8 @@ def test_gate_circuit_none_pnl():
         (0,),
     ]
     mock_ibapp = MagicMock()
-    mock_ibapp._daily_pnl = None  # reqPnL hasn't fired yet
+    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl().
+    mock_ibapp.get_daily_pnl.return_value = None  # reqPnL hasn't fired yet
     with patch("bravos.risk.gate._is_market_hours", return_value=True):
         passed, reason = gate.check(signal_id=1, db_conn=mock_conn, ibapp=mock_ibapp)
     assert passed is True
@@ -134,7 +138,8 @@ def test_gate_log_pass(db_connection):
 
     gate = RiskGate()
     mock_ibapp = MagicMock()
-    mock_ibapp._daily_pnl = 0.0
+    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl().
+    mock_ibapp.get_daily_pnl.return_value = 0.0
     # Patch market hours AND open positions count — live DB may have accumulated positions
     # from prior test runs that would trigger Gate 2 (max_positions) and prevent a pass.
     with patch("bravos.risk.gate._is_market_hours", return_value=True), \
@@ -164,7 +169,8 @@ def test_gate_log_block(db_connection):
 
     gate = RiskGate()
     mock_ibapp = MagicMock()
-    mock_ibapp._daily_pnl = 0.0
+    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl().
+    mock_ibapp.get_daily_pnl.return_value = 0.0
     # Force a block by patching market hours to False
     with patch("bravos.risk.gate._is_market_hours", return_value=False):
         passed, reason = gate.check(signal_id=signal_id, db_conn=db_connection, ibapp=mock_ibapp)
@@ -186,7 +192,8 @@ def test_quantity_formula():
     from bravos.execution.executor import _calculate_quantity
     signal = {"ticker": "AAPL", "weight_from": 0, "weight_to": 4, "action_type": "open"}
     mock_ibapp = MagicMock()
-    mock_ibapp._account_summary = {"NetLiquidation": "100000"}
+    # Migrated to the public seam (Session 3 / item 4): NLV now read via get_nlv().
+    mock_ibapp.get_nlv.return_value = 100000.0
     mock_db = MagicMock()
     qty = _calculate_quantity(signal, "open", mock_db, mock_ibapp, current_price=200.0)
     # delta=4, 4 × 0.05 × 100000 / 200 = 100
@@ -199,7 +206,8 @@ def test_quantity_zero_skipped():
     # Tiny delta × small NLV / huge price → 0 shares
     signal = {"ticker": "BRK.A", "weight_from": 0, "weight_to": 1, "action_type": "open"}
     mock_ibapp = MagicMock()
-    mock_ibapp._account_summary = {"NetLiquidation": "100"}
+    # Migrated to the public seam (Session 3 / item 4): NLV now read via get_nlv().
+    mock_ibapp.get_nlv.return_value = 100.0
     mock_db = MagicMock()
     qty = _calculate_quantity(signal, "open", mock_db, mock_ibapp, current_price=500000.0)
     assert qty == 0
@@ -658,11 +666,12 @@ def test_bracket_fallback_no_tpsl(db_connection):
     mock_ibapp.is_connected.return_value = True
     mock_ibapp.next_order_id = int.from_bytes(os.urandom(3), "big") + 60000
     mock_ibapp._order_status_events = {}
-    mock_ibapp._account_summary = {"NetLiquidation": "100000"}
+    # Migrated to the public seam (Session 3 / item 4): NLV now read via get_nlv().
+    mock_ibapp.get_nlv.return_value = 100000.0
 
     with patch("bravos.execution.executor._submit_bracket_order") as mock_bracket, \
          patch("bravos.execution.executor._submit_order", return_value="SUBMITTED") as mock_bare, \
-         patch("bravos.execution.executor._fetch_price", return_value=300.0), \
+         patch.object(mock_ibapp, "fetch_delayed_price", return_value=300.0), \
          patch("bravos.risk.gate.RiskGate.check", return_value=(True, "pass")), \
          patch("bravos.runtime.ibapp", mock_ibapp):
         execute_signal(signal_id, db_connection)
@@ -694,12 +703,13 @@ def test_bracket_fallback_qty_too_small(db_connection):
     mock_ibapp.is_connected.return_value = True
     mock_ibapp.next_order_id = int.from_bytes(os.urandom(3), "big") + 70000
     mock_ibapp._order_status_events = {}
+    # Migrated to the public seam (Session 3 / item 4): NLV now read via get_nlv().
     # NLV=6000 → quantity=int(1*0.05*6000/300)=1; 3 TPs → 1 < 3 triggers D-20
-    mock_ibapp._account_summary = {"NetLiquidation": "6000"}
+    mock_ibapp.get_nlv.return_value = 6000.0
 
     with patch("bravos.execution.executor._submit_bracket_order") as mock_bracket, \
          patch("bravos.execution.executor._submit_order", return_value="SUBMITTED") as mock_bare, \
-         patch("bravos.execution.executor._fetch_price", return_value=300.0), \
+         patch.object(mock_ibapp, "fetch_delayed_price", return_value=300.0), \
          patch("bravos.risk.gate.RiskGate.check", return_value=(True, "pass")), \
          patch("bravos.runtime.ibapp", mock_ibapp):
         execute_signal(signal_id, db_connection)
@@ -726,11 +736,12 @@ def test_bracket_close_signal_routes_bare(db_connection):
     mock_ibapp.is_connected.return_value = True
     mock_ibapp.next_order_id = int.from_bytes(os.urandom(3), "big") + 80000
     mock_ibapp._order_status_events = {}
-    mock_ibapp._account_summary = {"NetLiquidation": "100000"}
+    # Migrated to the public seam (Session 3 / item 4): NLV now read via get_nlv().
+    mock_ibapp.get_nlv.return_value = 100000.0
 
     with patch("bravos.execution.executor._submit_bracket_order") as mock_bracket, \
          patch("bravos.execution.executor._submit_order", return_value="SUBMITTED"), \
-         patch("bravos.execution.executor._fetch_price", return_value=300.0), \
+         patch.object(mock_ibapp, "fetch_delayed_price", return_value=300.0), \
          patch("bravos.risk.gate.RiskGate.check", return_value=(True, "pass")), \
          patch("bravos.runtime.ibapp", mock_ibapp):
         execute_signal(signal_id, db_connection)
