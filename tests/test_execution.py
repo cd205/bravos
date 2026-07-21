@@ -54,7 +54,8 @@ def test_gate_max_positions():
         (25,),  # open positions count
     ]
     mock_ibapp = MagicMock()
-    mock_ibapp._daily_pnl = 0.0
+    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl().
+    mock_ibapp.get_daily_pnl.return_value = 0.0
     with patch("bravos.risk.gate._is_market_hours", return_value=True):
         passed, reason = gate.check(signal_id=1, db_conn=mock_conn, ibapp=mock_ibapp)
     assert passed is False
@@ -74,7 +75,8 @@ def test_gate_max_allocation():
         (0,),  # zero open positions — that check passes
     ]
     mock_ibapp = MagicMock()
-    mock_ibapp._daily_pnl = 0.0
+    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl().
+    mock_ibapp.get_daily_pnl.return_value = 0.0
     with patch("bravos.risk.gate._is_market_hours", return_value=True):
         passed, reason = gate.check(signal_id=1, db_conn=mock_conn, ibapp=mock_ibapp)
     assert passed is False
@@ -93,7 +95,8 @@ def test_gate_circuit_breaker():
         (0,),  # open positions
     ]
     mock_ibapp = MagicMock()
-    mock_ibapp._daily_pnl = -6000.0  # below default -5000 threshold
+    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl().
+    mock_ibapp.get_daily_pnl.return_value = -6000.0  # below default -5000 threshold
     with patch("bravos.risk.gate._is_market_hours", return_value=True):
         passed, reason = gate.check(signal_id=1, db_conn=mock_conn, ibapp=mock_ibapp)
     assert passed is False
@@ -112,7 +115,8 @@ def test_gate_circuit_none_pnl():
         (0,),
     ]
     mock_ibapp = MagicMock()
-    mock_ibapp._daily_pnl = None  # reqPnL hasn't fired yet
+    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl().
+    mock_ibapp.get_daily_pnl.return_value = None  # reqPnL hasn't fired yet
     with patch("bravos.risk.gate._is_market_hours", return_value=True):
         passed, reason = gate.check(signal_id=1, db_conn=mock_conn, ibapp=mock_ibapp)
     assert passed is True
@@ -134,7 +138,12 @@ def test_gate_log_pass(db_connection):
 
     gate = RiskGate()
     mock_ibapp = MagicMock()
-    mock_ibapp._daily_pnl = 0.0
+    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl(),
+    # NLV via get_nlv() — both must be real numbers or psycopg2 can't adapt the MagicMock
+    # when gate.check() writes computed values (e.g. order_allocation_pct's NLV component)
+    # into risk_gate_log.
+    mock_ibapp.get_daily_pnl.return_value = 0.0
+    mock_ibapp.get_nlv.return_value = 100000.0
     # Patch market hours AND open positions count — live DB may have accumulated positions
     # from prior test runs that would trigger Gate 2 (max_positions) and prevent a pass.
     with patch("bravos.risk.gate._is_market_hours", return_value=True), \
@@ -164,7 +173,11 @@ def test_gate_log_block(db_connection):
 
     gate = RiskGate()
     mock_ibapp = MagicMock()
-    mock_ibapp._daily_pnl = 0.0
+    # Migrated to the public seam (Session 3 / item 4): daily P&L now read via get_daily_pnl(),
+    # NLV via get_nlv() — both must be real numbers or psycopg2 can't adapt the MagicMock
+    # when gate.check() writes computed values into risk_gate_log.
+    mock_ibapp.get_daily_pnl.return_value = 0.0
+    mock_ibapp.get_nlv.return_value = 100000.0
     # Force a block by patching market hours to False
     with patch("bravos.risk.gate._is_market_hours", return_value=False):
         passed, reason = gate.check(signal_id=signal_id, db_conn=db_connection, ibapp=mock_ibapp)
@@ -186,7 +199,8 @@ def test_quantity_formula():
     from bravos.execution.executor import _calculate_quantity
     signal = {"ticker": "AAPL", "weight_from": 0, "weight_to": 4, "action_type": "open"}
     mock_ibapp = MagicMock()
-    mock_ibapp._account_summary = {"NetLiquidation": "100000"}
+    # Migrated to the public seam (Session 3 / item 4): NLV now read via get_nlv().
+    mock_ibapp.get_nlv.return_value = 100000.0
     mock_db = MagicMock()
     qty = _calculate_quantity(signal, "open", mock_db, mock_ibapp, current_price=200.0)
     # delta=4, 4 × 0.05 × 100000 / 200 = 100
@@ -199,7 +213,8 @@ def test_quantity_zero_skipped():
     # Tiny delta × small NLV / huge price → 0 shares
     signal = {"ticker": "BRK.A", "weight_from": 0, "weight_to": 1, "action_type": "open"}
     mock_ibapp = MagicMock()
-    mock_ibapp._account_summary = {"NetLiquidation": "100"}
+    # Migrated to the public seam (Session 3 / item 4): NLV now read via get_nlv().
+    mock_ibapp.get_nlv.return_value = 100.0
     mock_db = MagicMock()
     qty = _calculate_quantity(signal, "open", mock_db, mock_ibapp, current_price=500000.0)
     assert qty == 0
@@ -246,20 +261,23 @@ def test_order_db_write_pending(db_connection):
         signal_id = cur.fetchone()[0]
     db_connection.commit()
 
-    # Mock ibapp: capture placeOrder call but do NOT fire orderStatus (we want to assert pre-call DB state)
+    # Mock ibapp: capture DB state when place_order_and_wait is called (this is now the
+    # single seam that follows _insert_order_row — asserts the row exists as
+    # PENDING_SUBMISSION before place-and-wait runs, same invariant as before the
+    # Session 3 refactor when this was a placeOrder side-effect).
     mock_ibapp = MagicMock()
     order_id = int.from_bytes(os.urandom(3), "big") + 10000  # unique per run — avoids stale-row contamination (RESEARCH Bug 2)
     mock_ibapp.next_order_id = order_id
-    mock_ibapp._order_status_events = {}
 
-    # Use a side-effect on placeOrder that snapshots DB state at call time
     captured_status = {}
     def capture_db_state(*args, **kwargs):
         with db_connection.cursor() as cur:
             cur.execute("SELECT status FROM orders WHERE ibkr_order_id=%s", (order_id,))
             row = cur.fetchone()
             captured_status["status"] = row[0] if row else None
-    mock_ibapp.placeOrder = MagicMock(side_effect=capture_db_state)
+        from bravos.broker.connection import OrderResult
+        return OrderResult(kind="timeout", status_str=None)
+    mock_ibapp.place_order_and_wait = MagicMock(side_effect=capture_db_state)
 
     _submit_order(mock_ibapp, signal_id, "AAPL", "BUY", 10, db_connection)
     assert captured_status["status"] == "PENDING_SUBMISSION"
@@ -268,6 +286,7 @@ def test_order_db_write_pending(db_connection):
 def test_order_status_submitted(db_connection):
     """EXEC-04: DB status transitions to SUBMITTED when orderStatus callback fires with 'Submitted'."""
     from bravos.execution.executor import _submit_order
+    from bravos.broker.connection import OrderResult
     with db_connection.cursor() as cur:
         cur.execute(
             "INSERT INTO signals (post_url, post_title, ticker, action_type, weight_from, weight_to, confidence) "
@@ -279,15 +298,9 @@ def test_order_status_submitted(db_connection):
 
     mock_ibapp = MagicMock()
     mock_ibapp.next_order_id = 1001
-    mock_ibapp._order_status_events = {}
-
-    def fire_status_callback(*args, **kwargs):
-        # Simulate the orderStatus callback firing with "Submitted"
-        slot = mock_ibapp._order_status_events.get(1001)
-        if slot is not None:
-            slot["status"] = "Submitted"
-            slot["event"].set()
-    mock_ibapp.placeOrder = MagicMock(side_effect=fire_status_callback)
+    mock_ibapp.place_order_and_wait = MagicMock(
+        return_value=OrderResult(kind="callback", status_str="Submitted")
+    )
 
     final_status = _submit_order(mock_ibapp, signal_id, "AAPL", "BUY", 10, db_connection)
     assert final_status == "SUBMITTED"
@@ -299,6 +312,7 @@ def test_order_status_submitted(db_connection):
 def test_order_status_rejected(db_connection):
     """EXEC-04: DB status transitions to REJECTED when orderStatus callback fires with 'Inactive'."""
     from bravos.execution.executor import _submit_order
+    from bravos.broker.connection import OrderResult
     with db_connection.cursor() as cur:
         cur.execute(
             "INSERT INTO signals (post_url, post_title, ticker, action_type, weight_from, weight_to, confidence) "
@@ -310,14 +324,9 @@ def test_order_status_rejected(db_connection):
 
     mock_ibapp = MagicMock()
     mock_ibapp.next_order_id = 1002
-    mock_ibapp._order_status_events = {}
-
-    def fire_rejected_callback(*args, **kwargs):
-        slot = mock_ibapp._order_status_events.get(1002)
-        if slot is not None:
-            slot["status"] = "Inactive"
-            slot["event"].set()
-    mock_ibapp.placeOrder = MagicMock(side_effect=fire_rejected_callback)
+    mock_ibapp.place_order_and_wait = MagicMock(
+        return_value=OrderResult(kind="callback", status_str="Inactive")
+    )
 
     final_status = _submit_order(mock_ibapp, signal_id, "BADTKR", "BUY", 10, db_connection)
     assert final_status == "REJECTED"
@@ -332,6 +341,7 @@ def test_order_rejected_via_error_callback(db_connection):
     """A rejection delivered via error() (IBKR_ERROR slot write) -> REJECTED,
     not SUBMITTED. Mirrors the real HROW error 10268 incident."""
     from bravos.execution.executor import _submit_order
+    from bravos.broker.connection import OrderResult
     with db_connection.cursor() as cur:
         cur.execute(
             "INSERT INTO signals (post_url, post_title, ticker, action_type, weight_from, weight_to, confidence) "
@@ -344,16 +354,9 @@ def test_order_rejected_via_error_callback(db_connection):
     order_id = int.from_bytes(os.urandom(3), "big") + 90000
     mock_ibapp = MagicMock()
     mock_ibapp.next_order_id = order_id
-    mock_ibapp._order_status_events = {}
-
-    def fire_ibkr_error(*args, **kwargs):
-        slot = mock_ibapp._order_status_events.get(order_id)
-        if slot is not None:
-            slot["status"] = "IBKR_ERROR"
-            slot["code"] = 10268
-            slot["message"] = "EtradeOnly not supported"
-            slot["event"].set()
-    mock_ibapp.placeOrder = MagicMock(side_effect=fire_ibkr_error)
+    mock_ibapp.place_order_and_wait = MagicMock(
+        return_value=OrderResult(kind="ibkr_error", status_str=None, code=10268, message="EtradeOnly not supported")
+    )
 
     final_status = _submit_order(mock_ibapp, signal_id, "HROW", "BUY", 109, db_connection)
     assert final_status == "REJECTED"
@@ -366,6 +369,7 @@ def test_order_399_then_submitted(db_connection):
     """Error 399 (accepted-order warning) does not short-circuit — a real
     Submitted callback that follows still resolves to SUBMITTED."""
     from bravos.execution.executor import _submit_order
+    from bravos.broker.connection import OrderResult
     with db_connection.cursor() as cur:
         cur.execute(
             "INSERT INTO signals (post_url, post_title, ticker, action_type, weight_from, weight_to, confidence) "
@@ -378,15 +382,11 @@ def test_order_399_then_submitted(db_connection):
     order_id = int.from_bytes(os.urandom(3), "big") + 91000
     mock_ibapp = MagicMock()
     mock_ibapp.next_order_id = order_id
-    mock_ibapp._order_status_events = {}
-
-    def fire_399_then_submitted(*args, **kwargs):
-        slot = mock_ibapp._order_status_events.get(order_id)
-        if slot is not None:
-            # Mirrors connection.py's allowlist skip: 399 is a no-op on the slot.
-            slot["status"] = "Submitted"
-            slot["event"].set()
-    mock_ibapp.placeOrder = MagicMock(side_effect=fire_399_then_submitted)
+    # Mirrors connection.py's allowlist skip: 399 is a no-op on the slot, so the
+    # eventual real callback ("Submitted") is what place_order_and_wait returns.
+    mock_ibapp.place_order_and_wait = MagicMock(
+        return_value=OrderResult(kind="callback", status_str="Submitted")
+    )
 
     final_status = _submit_order(mock_ibapp, signal_id, "AAPL", "BUY", 10, db_connection)
     assert final_status == "SUBMITTED"
@@ -658,11 +658,12 @@ def test_bracket_fallback_no_tpsl(db_connection):
     mock_ibapp.is_connected.return_value = True
     mock_ibapp.next_order_id = int.from_bytes(os.urandom(3), "big") + 60000
     mock_ibapp._order_status_events = {}
-    mock_ibapp._account_summary = {"NetLiquidation": "100000"}
+    # Migrated to the public seam (Session 3 / item 4): NLV now read via get_nlv().
+    mock_ibapp.get_nlv.return_value = 100000.0
 
     with patch("bravos.execution.executor._submit_bracket_order") as mock_bracket, \
          patch("bravos.execution.executor._submit_order", return_value="SUBMITTED") as mock_bare, \
-         patch("bravos.execution.executor._fetch_price", return_value=300.0), \
+         patch.object(mock_ibapp, "fetch_delayed_price", return_value=300.0), \
          patch("bravos.risk.gate.RiskGate.check", return_value=(True, "pass")), \
          patch("bravos.runtime.ibapp", mock_ibapp):
         execute_signal(signal_id, db_connection)
@@ -694,12 +695,13 @@ def test_bracket_fallback_qty_too_small(db_connection):
     mock_ibapp.is_connected.return_value = True
     mock_ibapp.next_order_id = int.from_bytes(os.urandom(3), "big") + 70000
     mock_ibapp._order_status_events = {}
+    # Migrated to the public seam (Session 3 / item 4): NLV now read via get_nlv().
     # NLV=6000 → quantity=int(1*0.05*6000/300)=1; 3 TPs → 1 < 3 triggers D-20
-    mock_ibapp._account_summary = {"NetLiquidation": "6000"}
+    mock_ibapp.get_nlv.return_value = 6000.0
 
     with patch("bravos.execution.executor._submit_bracket_order") as mock_bracket, \
          patch("bravos.execution.executor._submit_order", return_value="SUBMITTED") as mock_bare, \
-         patch("bravos.execution.executor._fetch_price", return_value=300.0), \
+         patch.object(mock_ibapp, "fetch_delayed_price", return_value=300.0), \
          patch("bravos.risk.gate.RiskGate.check", return_value=(True, "pass")), \
          patch("bravos.runtime.ibapp", mock_ibapp):
         execute_signal(signal_id, db_connection)
@@ -726,11 +728,12 @@ def test_bracket_close_signal_routes_bare(db_connection):
     mock_ibapp.is_connected.return_value = True
     mock_ibapp.next_order_id = int.from_bytes(os.urandom(3), "big") + 80000
     mock_ibapp._order_status_events = {}
-    mock_ibapp._account_summary = {"NetLiquidation": "100000"}
+    # Migrated to the public seam (Session 3 / item 4): NLV now read via get_nlv().
+    mock_ibapp.get_nlv.return_value = 100000.0
 
     with patch("bravos.execution.executor._submit_bracket_order") as mock_bracket, \
          patch("bravos.execution.executor._submit_order", return_value="SUBMITTED"), \
-         patch("bravos.execution.executor._fetch_price", return_value=300.0), \
+         patch.object(mock_ibapp, "fetch_delayed_price", return_value=300.0), \
          patch("bravos.risk.gate.RiskGate.check", return_value=(True, "pass")), \
          patch("bravos.runtime.ibapp", mock_ibapp):
         execute_signal(signal_id, db_connection)
@@ -745,22 +748,16 @@ def test_bracket_rejected_via_error_callback(db_connection):
     """Bracket parent rejection via error() (IBKR_ERROR slot write) -> REJECTED;
     STP/TP children stay PENDING_SUBMISSION (not falsely claimed SUBMITTED)."""
     from bravos.execution.executor import _submit_bracket_order
+    from bravos.broker.connection import OrderResult
 
     signal_id = _make_signal(db_connection, take_profits=[320.0, 350.0])
     mock_ibapp = MagicMock()
     start_id = int.from_bytes(os.urandom(3), "big") + 100000
     mock_ibapp.next_order_id = start_id
-    mock_ibapp._order_status_events = {}
-
-    def fire_ibkr_error(order_id, contract, order, *args, **kwargs):
-        if order_id == start_id:
-            slot = mock_ibapp._order_status_events.get(order_id)
-            if slot is not None:
-                slot["status"] = "IBKR_ERROR"
-                slot["code"] = 321
-                slot["message"] = "Read-Only API"
-                slot["event"].set()
-    mock_ibapp.placeOrder = MagicMock(side_effect=fire_ibkr_error)
+    mock_ibapp._register_order_slot = MagicMock()
+    mock_ibapp._await_registered_order = MagicMock(
+        return_value=OrderResult(kind="ibkr_error", status_str=None, code=321, message="Read-Only API")
+    )
 
     final_status = _submit_bracket_order(
         mock_ibapp, signal_id, "AAPL", "BUY", 20,
@@ -784,21 +781,18 @@ def test_bracket_399_then_submitted(db_connection):
     callback that follows still resolves to SUBMITTED, and children are
     bulk-updated to SUBMITTED."""
     from bravos.execution.executor import _submit_bracket_order
+    from bravos.broker.connection import OrderResult
 
     signal_id = _make_signal(db_connection, take_profits=[320.0, 350.0])
     mock_ibapp = MagicMock()
     start_id = int.from_bytes(os.urandom(3), "big") + 110000
     mock_ibapp.next_order_id = start_id
-    mock_ibapp._order_status_events = {}
-
-    def fire_399_then_submitted(order_id, contract, order, *args, **kwargs):
-        if order_id == start_id:
-            slot = mock_ibapp._order_status_events.get(order_id)
-            if slot is not None:
-                # Mirrors connection.py's allowlist skip: 399 is a no-op on the slot.
-                slot["status"] = "Submitted"
-                slot["event"].set()
-    mock_ibapp.placeOrder = MagicMock(side_effect=fire_399_then_submitted)
+    mock_ibapp._register_order_slot = MagicMock()
+    # Mirrors connection.py's allowlist skip: 399 is a no-op on the slot, so the
+    # eventual real callback ("Submitted") is what _await_registered_order returns.
+    mock_ibapp._await_registered_order = MagicMock(
+        return_value=OrderResult(kind="callback", status_str="Submitted")
+    )
 
     final_status = _submit_bracket_order(
         mock_ibapp, signal_id, "AAPL", "BUY", 20,

@@ -519,3 +519,213 @@ def test_replay_issued_after_db_conn():
     captured.clear()
     app.replay_todays_fills()
     assert captured == {}, "replay must be a no-op when _db_conn is unset"
+
+
+# ── Session 3 (item 4/3a): public IBApp API — get_nlv, get_daily_pnl, ─────
+# fetch_delayed_price, place_order_and_wait, register/await decomposition ──
+
+def test_get_nlv_present():
+    """get_nlv() returns float(NetLiquidation) when the tag is present."""
+    from bravos.broker.connection import IBApp
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+    app._account_summary = {"NetLiquidation": "500000.00"}
+    assert app.get_nlv() == 500000.0
+
+
+def test_get_nlv_missing():
+    """get_nlv() returns None when NetLiquidation tag is absent."""
+    from bravos.broker.connection import IBApp
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+    app._account_summary = {}
+    assert app.get_nlv() is None
+
+
+def test_get_nlv_unparseable():
+    """get_nlv() returns None (and logs) when NetLiquidation is not float-castable."""
+    from bravos.broker.connection import IBApp
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+    app._account_summary = {"NetLiquidation": "abc"}
+    assert app.get_nlv() is None
+
+
+def test_get_daily_pnl_present():
+    """get_daily_pnl() returns the stored _daily_pnl value."""
+    from bravos.broker.connection import IBApp
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+    app._daily_pnl = -1234.5
+    assert app.get_daily_pnl() == -1234.5
+
+
+def test_get_daily_pnl_none():
+    """get_daily_pnl() returns None when _daily_pnl has never been set by pnl()."""
+    from bravos.broker.connection import IBApp
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+    app._daily_pnl = None
+    assert app.get_daily_pnl() is None
+
+
+def test_build_contract_module_level():
+    """build_contract() returns a STK/SMART/USD Contract for the given ticker."""
+    from bravos.broker.connection import build_contract
+    c = build_contract("AAPL")
+    assert c.symbol == "AAPL"
+    assert c.secType == "STK"
+    assert c.exchange == "SMART"
+    assert c.currency == "USD"
+
+
+def test_fetch_delayed_price_tick_arrives():
+    """fetch_delayed_price returns the tick price when reqMktData writes the slot."""
+    from bravos.broker.connection import IBApp
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+
+    calls = {"market_data_type": False, "cancel_ids": []}
+    app.reqMarketDataType = lambda t: calls.update(market_data_type=(t == 3))
+
+    def fake_req_mkt_data(req_id, contract, *args, **kwargs):
+        slot = app._tick_events[req_id]
+        slot["price"] = 204.5
+        slot["event"].set()
+    app.reqMktData = fake_req_mkt_data
+    app.cancelMktData = lambda req_id: calls["cancel_ids"].append(req_id)
+
+    price = app.fetch_delayed_price("AAPL")
+    assert price == 204.5
+    assert calls["market_data_type"] is True
+    assert len(calls["cancel_ids"]) == 1
+
+
+def test_fetch_delayed_price_timeout():
+    """fetch_delayed_price returns None on timeout; cancelMktData still called
+    (finally) and the slot is popped from _tick_events."""
+    from bravos.broker.connection import IBApp
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+
+    calls = {"cancel_ids": []}
+    app.reqMarketDataType = lambda t: None
+    app.reqMktData = lambda *a, **k: None  # no-op — never writes the slot
+    app.cancelMktData = lambda req_id: calls["cancel_ids"].append(req_id)
+
+    price = app.fetch_delayed_price("AAPL", timeout=0.05)
+    assert price is None
+    assert len(calls["cancel_ids"]) == 1
+    assert app._tick_events == {}
+
+
+def test_fetch_delayed_price_cancel_always_called_once():
+    """Even when the wait times out, cancelMktData(req_id) is invoked exactly once."""
+    from bravos.broker.connection import IBApp
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+
+    cancel_calls = []
+    app.reqMarketDataType = lambda t: None
+    app.reqMktData = lambda *a, **k: None
+    app.cancelMktData = lambda req_id: cancel_calls.append(req_id)
+
+    app.fetch_delayed_price("MSFT", timeout=0.05)
+    assert len(cancel_calls) == 1
+
+
+def test_place_order_and_wait_callback():
+    """place_order_and_wait returns a 'callback' OrderResult when placeOrder's
+    side effect fires a real orderStatus (Submitted) on the registered slot."""
+    from bravos.broker.connection import IBApp, OrderResult
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+
+    def fake_place_order(order_id, contract, order):
+        slot = app._order_status_events[order_id]
+        slot["status"] = "Submitted"
+        slot["event"].set()
+    app.placeOrder = fake_place_order
+
+    result = app.place_order_and_wait(1001, object(), object())
+    assert result == OrderResult(kind="callback", status_str="Submitted", code=None, message=None)
+    assert 1001 not in app._order_status_events
+
+
+def test_place_order_and_wait_ibkr_error():
+    """place_order_and_wait returns an 'ibkr_error' OrderResult when placeOrder's
+    side effect writes an IBKR_ERROR slot (mirrors error() callback rejection)."""
+    from bravos.broker.connection import IBApp, OrderResult
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+
+    def fake_place_order(order_id, contract, order):
+        slot = app._order_status_events[order_id]
+        slot["status"] = "IBKR_ERROR"
+        slot["code"] = 10268
+        slot["message"] = "EtradeOnly not supported"
+        slot["event"].set()
+    app.placeOrder = fake_place_order
+
+    result = app.place_order_and_wait(1002, object(), object())
+    assert result == OrderResult(
+        kind="ibkr_error", status_str="IBKR_ERROR", code=10268, message="EtradeOnly not supported",
+    )
+    assert 1002 not in app._order_status_events
+
+
+def test_place_order_and_wait_timeout():
+    """place_order_and_wait returns a 'timeout' OrderResult when placeOrder
+    never touches the slot; slot is popped afterward."""
+    from bravos.broker.connection import IBApp, OrderResult
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+    app.placeOrder = lambda order_id, contract, order: None  # never touches slot
+
+    result = app.place_order_and_wait(1003, object(), object(), timeout=0.05)
+    assert result == OrderResult(kind="timeout", status_str=None, code=None, message=None)
+    assert 1003 not in app._order_status_events
+
+
+def test_register_order_slot_and_await_callback():
+    """_register_order_slot installs a slot; a subsequent orderStatus callback
+    + _await_registered_order resolves to a 'callback' OrderResult; slot popped."""
+    from bravos.broker.connection import IBApp, OrderResult
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+
+    app._register_order_slot(2001)
+    assert 2001 in app._order_status_events
+
+    # Simulate the orderStatus callback firing.
+    app.orderStatus(
+        orderId=2001, status="Submitted", filled=0, remaining=10, avgFillPrice=0,
+        permId=1, parentId=0, lastFillPrice=0, clientId=1, whyHeld="", mktCapPrice=0,
+    )
+
+    result = app._await_registered_order(2001, timeout=1.0)
+    assert result == OrderResult(kind="callback", status_str="Submitted", code=None, message=None)
+    assert 2001 not in app._order_status_events
+
+
+def test_await_registered_order_timeout():
+    """_await_registered_order returns a 'timeout' OrderResult when no callback
+    ever fires; slot popped."""
+    from bravos.broker.connection import IBApp, OrderResult
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+
+    app._register_order_slot(2002)
+    result = app._await_registered_order(2002, timeout=0.05)
+    assert result == OrderResult(kind="timeout", status_str=None, code=None, message=None)
+    assert 2002 not in app._order_status_events
+
+
+def test_place_order_and_wait_is_register_place_await_composition():
+    """place_order_and_wait registers the slot, calls placeOrder exactly once,
+    then awaits — same OrderResult as calling register/placeOrder/await by hand."""
+    from bravos.broker.connection import IBApp
+    app = IBApp(host="127.0.0.1", port=4002, client_id=1)
+
+    call_count = {"n": 0}
+
+    def fake_place_order(order_id, contract, order):
+        call_count["n"] += 1
+        # Slot must already exist (registered) before placeOrder is called.
+        assert order_id in app._order_status_events
+        slot = app._order_status_events[order_id]
+        slot["status"] = "Submitted"
+        slot["event"].set()
+    app.placeOrder = fake_place_order
+
+    result = app.place_order_and_wait(3001, object(), object())
+    assert call_count["n"] == 1
+    assert result.kind == "callback"
+    assert result.status_str == "Submitted"

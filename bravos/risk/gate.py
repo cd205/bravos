@@ -70,7 +70,7 @@ class RiskGate:
         delta_weight = abs((signal["weight_to"] or 0) - (signal["weight_from"] or 0))
         alloc_pct = delta_weight * WEIGHT_PCT_PER_UNIT
         nlv = self._read_nlv(ibapp)
-        daily_pnl = getattr(ibapp, "_daily_pnl", None) if ibapp is not None else None
+        daily_pnl = ibapp.get_daily_pnl() if ibapp is not None else None
 
         computed = {
             "open_positions": open_positions,
@@ -176,18 +176,13 @@ class RiskGate:
 
     @staticmethod
     def _read_nlv(ibapp):
-        """Read NetLiquidation from ibapp._account_summary, cast string to float."""
-        if ibapp is None:
-            return None
-        summary = getattr(ibapp, "_account_summary", None) or {}
-        raw = summary.get("NetLiquidation")
-        if raw is None:
-            return None
-        try:
-            return float(raw)
-        except (TypeError, ValueError):
-            logger.warning("NetLiquidation is not float-castable: %r", raw)
-            return None
+        """
+        Read NetLiquidation via the public IBApp seam (Session 3 / item 4).
+
+        The float-cast + unparseable-value warning now live in IBApp.get_nlv —
+        behaviour preserved (missing/unparseable NLV -> None).
+        """
+        return ibapp.get_nlv() if ibapp is not None else None
 
     @staticmethod
     def _log_and_return(passed, reason, signal_id, computed, db_conn):
