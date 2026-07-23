@@ -125,10 +125,11 @@ None yet.
 | 260716-9ro | Session 2b: bravos/runtime.py process-state module; scraper drops scripts-import inversion (IMPROVEMENTS.md item 2) | 2026-07-17 | 7a5593d | | [260716-9ro](./quick/260716-9ro-session-2b-from-planning-implementation-/) |
 | 260717-9xp | Session 2c: bounded honest Gmail retry — explicit process_alert result, 10-strike alert+mark-seen, 0-rows fallback (IMPROVEMENTS.md item 17) | 2026-07-18 | d8b0ca9 | | [260717-9xp](./quick/260717-9xp-session-2c-from-planning-implementation-/) |
 | 260717-b3h | Session 3: public IBApp API (get_nlv/get_daily_pnl/fetch_delayed_price/place_order_and_wait) + deduplicated submit paths (IMPROVEMENTS.md items 4 and 6) | 2026-07-21 | f99adb3 | Verified 9/9 (2 gap-fix rounds) | [260717-b3h](./quick/260717-b3h-session-3-3a-3b-from-planning-implementa/) |
+| 260718-8fb | Session 4: shared IBKR bootstrap (connect_and_prepare) + execution moved out of scraper (IMPROVEMENTS.md items 7 and 8) | 2026-07-23 | 5944e05 | 170 passed | [260718-8fb](./quick/260718-8fb-session-4-4a-4b-from-planning-implementa/) |
 
 ## Session Continuity
 
-Last activity: 2026-07-21 - Completed quick task 260717-b3h: IBApp public API + submit-path dedup (IMPLEMENTATION_PLAN.md Session 3)
+Last activity: 2026-07-23 - Completed quick task 260718-8fb: shared bootstrap + scraper purification (IMPLEMENTATION_PLAN.md Session 4)
 Last session: 2026-06-01T05:11:23.989Z
 Stopped at: Phase 9 context gathered
 Resume file: .planning/phases/09-bracket-orders/09-CONTEXT.md
