@@ -45,7 +45,8 @@ from urllib3.exceptions import MaxRetryError
 
 import bravos.broker.connection as broker_module
 from bravos import runtime
-from bravos.broker.connection import IBApp
+from bravos.broker.bootstrap import connect_and_prepare
+from bravos.broker.connection import IBApp, REQ_ID_PNL
 from bravos.config import settings
 from bravos.config.settings import SCRAPE_INTERVAL_SECONDS
 from bravos.db import get_connection
@@ -60,10 +61,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
 logger = logging.getLogger("bravos.ingestion.daemon")
-
-# Phase 4: req_id allocated for reqPnL subscription.
-# Must not collide with REQ_ID_ACCOUNT_SUMMARY=9001 in broker/connection.py.
-REQ_ID_PNL = 9002
 
 _shutdown = False
 _scraper: BravosScraper | None = None
@@ -104,36 +101,7 @@ def _connect_ibkr(ibapp: IBApp) -> bool:
         ibapp.start_background_reconnect()
         return False
 
-    try:
-        _db_conn = _get_db_connection()
-        ibapp.run_startup_reconciliation(_db_conn, timeout=30)
-        _db_conn.close()
-    except Exception:
-        logger.exception("Startup reconciliation failed — continuing")
-
-    try:
-        ibapp._db_conn = _get_db_connection()
-    except Exception:
-        logger.exception("Failed to open DB connection for fill callbacks")
-        ibapp._db_conn = None
-
-    # Fill replay (IMPROVEMENTS item 16): now that _db_conn is set, request today's
-    # executions so fills that landed while disconnected / under another clientId are
-    # captured via execDetails. MUST come after _db_conn assignment above, else
-    # execDetails drops them at its "_db_conn not set" guard.
-    try:
-        ibapp.replay_todays_fills()
-    except Exception:
-        logger.exception("Fill replay on connect failed — continuing")
-
-    if ibapp._account_name:
-        try:
-            ibapp.reqPnL(REQ_ID_PNL, ibapp._account_name, "")
-            logger.info("reqPnL subscription started — account=%s", ibapp._account_name)
-        except Exception:
-            logger.exception("reqPnL subscription failed — circuit breaker will fail-open")
-    else:
-        logger.warning("_account_name empty — skipping reqPnL subscription")
+    connect_and_prepare(ibapp, pnl_req_id=REQ_ID_PNL)
 
     ibapp.start_heartbeat_monitor()
     return True
@@ -353,25 +321,64 @@ def run_cycle():
 
 
 def _handle_alert_url(url: str) -> str:
-    """Map process_alert's result to the socket reply. Returns 'OK' or 'ERR <reason>'.
+    """Map process_alert's AlertResult to the socket reply, then own the
+    queue-or-execute decision (Session 4b, IMPLEMENTATION_PLAN.md item 8).
+
+    Returns 'OK' or 'ERR <reason>'.
 
     Session 2c (IMPROVEMENTS.md item 17): honest replies. OK only for a
     genuine store or known duplicate; ERR for anything else, including a
     defensive None or an unexpected raise (process_alert itself should never
     raise post-Session-2c, but this stays honest either way).
+
+    Session 4b: the scraper is now pure ingestion — process_alert no longer
+    routes to execution. This function lifts that logic verbatim (same
+    conditions, same pause/queue behavior, same log-not-raise on exec error)
+    so it runs AFTER the reply is computed. Execution errors must NOT change
+    the socket reply: a stored signal whose order later errors is still "OK".
     """
     if _scraper is None:
         logger.warning("Alert socket: scraper not ready, dropping url=%s", url)
         return "ERR scraper not ready"
     try:
-        result = _scraper.process_alert(url)
+        res = _scraper.process_alert(url)
     except Exception as exc:  # process_alert shouldn't raise now, but stay honest
         logger.exception("process_alert raised for url=%s", url)
         return f"ERR {exc}"
+
+    result = getattr(res, "result", None)
     if result in ("stored", "duplicate"):
-        return "OK"
-    logger.error("Alert dispatch failed for url=%s: process_alert -> %r", url, result)
-    return f"ERR process_alert={result}"
+        reply = "OK"
+    else:
+        logger.error("Alert dispatch failed for url=%s: process_alert -> %r", url, res)
+        return f"ERR process_alert={result}"
+
+    # Phase 4 D-12: route a genuinely NEW, high-confidence stored signal to
+    # the order path. CR-01: is_new=False (duplicate) never reaches here —
+    # re-routing a duplicate would place a second order for the same signal.
+    if result == "stored" and getattr(res, "is_new", False) and getattr(res, "confidence", None) == "high":
+        signal_id = res.signal_id
+        # Check if the IBKR connection is paused (USR1 received, waiting for USR2).
+        # Session 2b: pause state lives in bravos.runtime (always importable,
+        # no guard needed; the silent not-paused fallback is gone).
+        if runtime.ibkr_paused:
+            runtime.paused_signal_queue.put(signal_id)
+            logger.info(
+                "IBKR paused — signal_id=%s queued for execution on resume", signal_id
+            )
+        else:
+            from bravos.execution.executor import execute_signal
+            exec_conn = get_connection()
+            try:
+                execute_signal(signal_id, exec_conn)
+            except Exception:
+                # A stored signal whose order later errors is still "OK" —
+                # execute_signal owns its own failure handling/logging.
+                logger.exception("execute_signal raised for signal_id=%s — continuing", signal_id)
+            finally:
+                exec_conn.close()
+
+    return reply
 
 
 def _run_alert_socket_server():

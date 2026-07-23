@@ -3,6 +3,12 @@ Bravos Trading System — Selenium Scraper.
 
 Persistent Chrome driver (per D-01), session expiry detection (per D-02),
 category page scraping (per D-06, D-07), and post body extraction.
+
+Pure ingestion (Session 4b, IMPLEMENTATION_PLAN.md item 8): this module has
+no dependency on the order-execution layer and never dispatches an order
+directly. The queue-or-dispatch decision (runtime pause check + order
+dispatch) lives in scripts/run_ingestion.py::_handle_alert_url, which owns
+the routing decision based on the AlertResult this module returns.
 """
 import os
 import subprocess
@@ -10,6 +16,7 @@ import time
 import random
 import functools
 import logging
+from dataclasses import dataclass
 
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -23,13 +30,27 @@ from selenium.common.exceptions import (
 from urllib3.exceptions import MaxRetryError
 from webdriver_manager.chrome import ChromeDriverManager
 
-from bravos import runtime
 from bravos.config.secrets_config import get_secret
 from bravos.config import settings
 from bravos.db import get_connection
 from bravos.ingestion.parser import parse_signal
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class AlertResult:
+    """
+    Structured outcome of process_alert(url) — pure-ingestion contract
+    (Session 4b, item 8). Callers (run_ingestion._handle_alert_url) use
+    `result` for the socket reply (unchanged from Session 2c: "stored"/
+    "duplicate" -> OK, anything else -> ERR) and signal_id/is_new/confidence
+    to decide whether to route the signal to execution.
+    """
+    result: str                    # "stored" | "duplicate" | "failed"
+    signal_id: int | None
+    is_new: bool
+    confidence: str | None
 
 
 def setup_chrome_driver(headless: bool = True):
@@ -235,8 +256,8 @@ class BravosScraper:
         Returns (signal_id, is_new):
           - is_new=True when a new row was inserted (first time this URL is seen).
           - is_new=False when the post_url already existed (duplicate); signal_id is
-            the existing row's id so callers can inspect history, but execute_signal
-            must NOT be re-triggered (CR-01: duplicate order guard).
+            the existing row's id so callers can inspect history, but order
+            dispatch must NOT be re-triggered (CR-01: duplicate order guard).
 
         RETURNING id returns no rows on conflict (see RESEARCH Pitfall 4), so we look
         up the existing id in that case and return is_new=False.
@@ -267,7 +288,7 @@ class BravosScraper:
                 row = cur.fetchone()
                 if row is None:
                     # URL already exists — look up the existing id for logging.
-                    # is_new=False: process_alert must NOT call execute_signal again
+                    # is_new=False: caller must NOT route this signal to order dispatch again
                     # (CR-01: prevents duplicate orders on crash-recovery / scheduler overlap).
                     cur.execute(
                         "SELECT id FROM signals WHERE post_url = %s",
@@ -281,25 +302,32 @@ class BravosScraper:
             conn.close()
         return (row[0] if row else None, True)
 
-    def process_alert(self, url: str) -> str:
+    def process_alert(self, url: str) -> AlertResult:
         """Fetch a post URL, parse, and store. Called by the Gmail poller per alert email.
 
         Ensures session is valid before fetching. Dedup handled by DB ON CONFLICT.
 
-        Contract (Session 2c, IMPROVEMENTS.md item 17): the return value IS the
-        outcome — "stored", "duplicate", or "failed". Never returns None, never
-        raises. The @catch_cycle_exceptions decorator used to swallow every
-        exception here and return None either way; that made the caller (the
-        alert socket handler) unable to tell success from failure. The decorator
-        stays on run_cycle (Chrome-crash self-heal) but is removed here — this
-        method now owns its own try/except so the truth escapes instead.
+        Pure ingestion (Session 4b, IMPLEMENTATION_PLAN.md item 8): this method
+        no longer reads the runtime pause flag, imports the order-execution
+        module, dispatches an order, or opens an order-execution DB
+        connection. The queue-or-dispatch decision moved to
+        run_ingestion._handle_alert_url, which owns the routing decision
+        based on the returned AlertResult.
+
+        Contract (originally Session 2c, IMPROVEMENTS.md item 17; extended
+        Session 4b): returns an AlertResult(result, signal_id, is_new,
+        confidence). `result` is one of "stored", "duplicate", "failed" —
+        identical vocabulary to the pre-4b string return, so
+        _handle_alert_url's OK/ERR socket-reply mapping is unchanged. Never
+        raises — this method owns its own try/except so the truth escapes
+        instead of being swallowed.
         """
         try:
             if not self._check_session():
                 logger.warning("Session expired — re-authenticating (per D-03)")
                 if not self._login():
                     logger.critical("Re-auth failed after %d attempts — skipping alert", settings.MAX_REAUTH_ATTEMPTS)
-                    return "failed"
+                    return AlertResult("failed", None, False, None)
 
             content = self.fetch_post(url)
             parsed = parse_signal(content["title"], content["text"])
@@ -316,7 +344,7 @@ class BravosScraper:
 
             if is_new is False:
                 # Dedup path — URL already existed in the DB. Not a failure.
-                return "duplicate"
+                return AlertResult("duplicate", signal_id, False, parsed.get("confidence"))
 
             if signal_id is None:
                 # Edge case: is_new True but no id (unexpected _store_signal
@@ -325,7 +353,7 @@ class BravosScraper:
                     "process_alert: is_new=True but signal_id is None for url=%s — treating as failed",
                     url,
                 )
-                return "failed"
+                return AlertResult("failed", None, False, None)
 
             # Phase 7: parse failure spike tracking (D-03, NOTF-02). Duplicates
             # are not counted — only genuinely parsed new signals reach here.
@@ -335,37 +363,10 @@ class BravosScraper:
             except Exception:
                 logger.warning("record_parse_outcome failed — continuing", exc_info=True)
 
-            # Phase 4 D-12: route stored signal to the order path.
-            # CR-01: Only route NEW inserts to execute_signal — is_new=False (the
-            # duplicate case) already returned above, so we know this is a fresh
-            # insert. Re-routing a duplicate would place a second order for the
-            # same signal — no uniqueness constraint on (signal_id) in orders
-            # table prevents it.
-            if parsed.get("confidence") == "high":
-                # Check if the IBKR connection is paused (USR1 received, waiting for USR2).
-                # Session 2b: pause state lives in bravos.runtime (always importable,
-                # no guard needed; the silent not-paused fallback is gone).
-                if runtime.ibkr_paused:
-                    runtime.paused_signal_queue.put(signal_id)
-                    logger.info(
-                        "IBKR paused — signal_id=%s queued for execution on resume", signal_id
-                    )
-                else:
-                    from bravos.execution.executor import execute_signal
-                    exec_conn = get_connection()
-                    try:
-                        execute_signal(signal_id, exec_conn)
-                    except Exception:
-                        # A stored signal whose order later errors is still "stored" —
-                        # execute_signal owns its own failure handling/logging.
-                        logger.exception("execute_signal raised for signal_id=%s — continuing", signal_id)
-                    finally:
-                        exec_conn.close()
-
-            return "stored"
+            return AlertResult("stored", signal_id, True, parsed.get("confidence"))
         except Exception:
             logger.exception("process_alert failed for url=%s", url)
-            return "failed"
+            return AlertResult("failed", None, False, None)
 
     def shutdown(self):
         """Graceful shutdown — quit Chrome driver (SIGTERM handler)."""

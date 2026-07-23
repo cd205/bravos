@@ -32,7 +32,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import bravos.broker.connection as broker_module
 from bravos import runtime
-from bravos.broker.connection import IBApp
+from bravos.broker.bootstrap import connect_and_prepare
+from bravos.broker.connection import IBApp, REQ_ID_PNL
 from bravos.config import settings
 from bravos.db import get_connection
 from bravos.ingestion.scraper import BravosScraper
@@ -44,10 +45,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
 logger = logging.getLogger("bravos.validation")
-
-# Phase 4: req_id allocated for reqPnL subscription.
-# Must not collide with REQ_ID_ACCOUNT_SUMMARY=9001 in broker/connection.py.
-REQ_ID_PNL = 9002
 
 # ---------------------------------------------------------------------------
 # URL_LIST — operator-provided list of (url, expected_ticker, expected_action)
@@ -197,12 +194,12 @@ def run_startup() -> tuple:
     Per RESEARCH Don't Hand-Roll: copies the known-correct startup sequence from
     run_ingestion.py rather than reinventing it.
 
-    Startup order (must match run_ingestion.py lines 138–209):
+    Startup order (mirrors run_ingestion.py's _connect_ibkr):
       1. Instantiate IBApp and set module-level singleton
       2. connect_and_run (30s timeout)
-      3. Startup reconciliation with a temp conn, then close it
-      4. Install api-thread dedicated DB connection (_ibapp._db_conn)
-      5. reqPnL subscription (circuit breaker)
+      3-5. connect_and_prepare: startup reconciliation (temp conn) ->
+           install api-thread dedicated DB connection (_ibapp._db_conn) ->
+           fill replay -> reqPnL subscription (circuit breaker)
       6. Start heartbeat monitor
       7. Instantiate BravosScraper and start session
       8. Open SEPARATE main-thread assertion connection (never shared)
@@ -230,48 +227,9 @@ def run_startup() -> tuple:
 
     logger.info("IBKR connected — running startup reconciliation")
 
-    # Step 3: Startup reconciliation (temp conn, closed after use)
-    try:
-        temp_conn = _get_db_connection()
-        _ibapp.run_startup_reconciliation(temp_conn, timeout=30)
-        temp_conn.close()
-    except Exception:
-        logger.exception("Startup reconciliation failed — continuing without reconciliation")
-
-    # Step 4: Install dedicated DB connection for the api thread.
-    # CRITICAL: this connection is owned by the ibkr-api thread (execDetails,
-    # orderStatus callbacks fire there). It is NEVER shared with the main thread.
-    # Per RESEARCH Pitfall 1 / T-06-04: database connections are not thread-safe.
-    try:
-        _ibapp._db_conn = _get_db_connection()
-        logger.info("IBApp._db_conn installed for fill callbacks (api-thread connection)")
-    except Exception:
-        logger.exception(
-            "Failed to open DB connection for ibapp._db_conn — fill captures will be skipped"
-        )
-        _ibapp._db_conn = None
-
-    # Step 5: reqPnL subscription so the risk gate circuit breaker has live data.
-    # Per RESEARCH Pitfall 6: _account_name is populated by the time
-    # run_startup_reconciliation returns (via managedAccounts callback).
-    if _ibapp._account_name:
-        try:
-            _ibapp.reqPnL(REQ_ID_PNL, _ibapp._account_name, "")
-            logger.info(
-                "reqPnL subscription started — req_id=%s account=%s",
-                REQ_ID_PNL,
-                _ibapp._account_name,
-            )
-        except Exception:
-            logger.exception(
-                "reqPnL subscription failed for account=%s — circuit breaker will fail-open",
-                _ibapp._account_name,
-            )
-    else:
-        logger.warning(
-            "_account_name empty after handshake — skipping reqPnL. "
-            "Circuit breaker will fail-open (ibapp._daily_pnl stays None)."
-        )
+    # Steps 3-5: shared reconcile -> _db_conn -> replay -> reqPnL sequence
+    # (Session 4a, item 7 — single home in bravos.broker.bootstrap).
+    connect_and_prepare(_ibapp, pnl_req_id=REQ_ID_PNL)
 
     # Step 6: Start heartbeat monitor
     _ibapp.start_heartbeat_monitor()
@@ -285,9 +243,9 @@ def run_startup() -> tuple:
     # Step 8: Open the SEPARATE main-thread assertion connection.
     # This object is distinct from _ibapp._db_conn — they must NEVER be shared
     # across threads (RESEARCH Pitfall 1 / T-06-04 two-connection model).
-    # Acceptance criteria: >=3 _get_db_connection() call sites in this file confirm
-    # that (reconciliation temp conn) + (api-thread conn) + (main-thread assertion conn)
-    # are all independently opened.
+    # The reconciliation temp conn and api-thread conn are now opened inside
+    # connect_and_prepare (Session 4a, item 7); this is the third, independent
+    # main-thread assertion connection.
     db_conn = _get_db_connection()
     logger.info("Main-thread assertion DB connection opened (distinct from api-thread conn)")
 
