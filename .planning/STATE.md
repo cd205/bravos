@@ -126,10 +126,11 @@ None yet.
 | 260717-9xp | Session 2c: bounded honest Gmail retry — explicit process_alert result, 10-strike alert+mark-seen, 0-rows fallback (IMPROVEMENTS.md item 17) | 2026-07-18 | d8b0ca9 | | [260717-9xp](./quick/260717-9xp-session-2c-from-planning-implementation-/) |
 | 260717-b3h | Session 3: public IBApp API (get_nlv/get_daily_pnl/fetch_delayed_price/place_order_and_wait) + deduplicated submit paths (IMPROVEMENTS.md items 4 and 6) | 2026-07-21 | f99adb3 | Verified 9/9 (2 gap-fix rounds) | [260717-b3h](./quick/260717-b3h-session-3-3a-3b-from-planning-implementa/) |
 | 260718-8fb | Session 4: shared IBKR bootstrap (connect_and_prepare) + execution moved out of scraper (IMPROVEMENTS.md items 7 and 8) | 2026-07-23 | 5944e05 | 170 passed | [260718-8fb](./quick/260718-8fb-session-4-4a-4b-from-planning-implementa/) |
+| 260723-aqz | Session 5: split connection.py into connection.py/reconciliation.py/fills.py — pure move, AST-verified zero logic change (IMPROVEMENTS.md item 5) | 2026-07-23 | 59b9f9a | Verified 8/8 | [260723-aqz](./quick/260723-aqz-session-5-from-planning-implementation-p/) |
 
 ## Session Continuity
 
-Last activity: 2026-07-23 - Completed quick task 260718-8fb: shared bootstrap + scraper purification (IMPLEMENTATION_PLAN.md Session 4)
+Last activity: 2026-07-23 - Completed quick task 260723-aqz: connection.py split (IMPLEMENTATION_PLAN.md Session 5)
 Last session: 2026-06-01T05:11:23.989Z
 Stopped at: Phase 9 context gathered
 Resume file: .planning/phases/09-bracket-orders/09-CONTEXT.md
