@@ -429,7 +429,7 @@ def test_periodic_reconciliation_mismatch(db_connection):
     Mismatches logged as WARNING, never auto-corrected (D-09).
     Reuses _reconcile_against_db and _write_position_snapshot helpers (D-10).
     """
-    from bravos.broker.connection import _reconcile_against_db
+    from bravos.broker.reconciliation import _reconcile_against_db
 
     ticker = f"REC_{os.urandom(3).hex()}"
     try:
@@ -444,7 +444,7 @@ def test_periodic_reconciliation_mismatch(db_connection):
         # IBKR reports only 50 shares — mismatch (D-09: 50 != 100)
         ibkr_positions = [{"ticker": ticker, "position": 50, "avg_cost": 50.0}]
 
-        with patch("bravos.broker.connection.logger") as mock_logger:
+        with patch("bravos.broker.reconciliation.logger") as mock_logger:
             _reconcile_against_db(db_connection, ibkr_positions, [])
 
             # Assert: at least one warning call mentioning RECONCILE MISMATCH and the ticker

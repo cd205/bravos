@@ -338,7 +338,7 @@ def test_account_summary_end_sets_event():
 
 def test_position_snapshot_written(db_connection):
     """_write_position_snapshot inserts rows into broker_positions_snapshot."""
-    from bravos.broker.connection import _write_position_snapshot
+    from bravos.broker.reconciliation import _write_position_snapshot
 
     positions = [
         {"ticker": "AAPL", "position": 100, "avg_cost": 150.25},
@@ -377,8 +377,8 @@ def test_reconcile_mismatch_logs_warning(caplog):
     # IBKR says 80 shares — mismatch
     ibkr_positions = [{"ticker": "AAPL", "position": 80, "avg_cost": 150.0}]
 
-    from bravos.broker.connection import _reconcile_against_db
-    with caplog.at_level(logging.WARNING, logger="bravos.broker.connection"):
+    from bravos.broker.reconciliation import _reconcile_against_db
+    with caplog.at_level(logging.WARNING, logger="bravos.broker.reconciliation"):
         _reconcile_against_db(mock_conn, ibkr_positions, [])
 
     assert any("RECONCILE MISMATCH" in r.message for r in caplog.records)
@@ -386,7 +386,7 @@ def test_reconcile_mismatch_logs_warning(caplog):
 
 def test_reconcile_no_db_write_on_mismatch(db_connection):
     """_reconcile_against_db never writes to position_lots on mismatch (D-08)."""
-    from bravos.broker.connection import _reconcile_against_db
+    from bravos.broker.reconciliation import _reconcile_against_db
 
     with db_connection.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM position_lots")
