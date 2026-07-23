@@ -22,8 +22,10 @@ from ibapi.execution import ExecutionFilter
 from ibapi.order import Order
 from ibapi.wrapper import EWrapper
 
+from bravos.broker import reconciliation
 from bravos.config.settings import IBKR_CLIENT_ID, IBKR_HOST, get_ibkr_port
 from bravos.db import get_connection
+from bravos.execution import fills
 
 logger = logging.getLogger(__name__)
 
@@ -614,9 +616,9 @@ class IBApp(EWrapper, EClient):
         # write the fill price + status flip to the DB.
         if self._db_conn is not None:
             if status == "Filled":
-                _update_order_filled(self._db_conn, orderId, avgFillPrice)
+                fills._update_order_filled(self._db_conn, orderId, avgFillPrice)
             elif status == "PartiallyFilled":
-                _update_order_partial(self._db_conn, orderId, avgFillPrice)
+                fills._update_order_partial(self._db_conn, orderId, avgFillPrice)
 
     def pnl(self, reqId: int, dailyPnL: float, unrealizedPnL: float, realizedPnL: float) -> None:
         """
@@ -643,7 +645,7 @@ class IBApp(EWrapper, EClient):
                 execution.execId,
             )
             return
-        _handle_exec_details(self._db_conn, execution, contract)
+        fills._handle_exec_details(self._db_conn, execution, contract)
 
     def execDetailsEnd(self, reqId: int) -> None:
         """
@@ -767,10 +769,10 @@ class IBApp(EWrapper, EClient):
             logger.error("Reconciliation timed out — partial data used for snapshot")
 
         # 6. Write snapshot (always, even on partial data)
-        _write_position_snapshot(db_conn, self._positions)
+        reconciliation._write_position_snapshot(db_conn, self._positions)
 
         # 7. Reconcile against DB (always)
-        _reconcile_against_db(db_conn, self._positions, self._open_orders)
+        reconciliation._reconcile_against_db(db_conn, self._positions, self._open_orders)
 
         return all_done
 
@@ -805,8 +807,8 @@ class IBApp(EWrapper, EClient):
                 "using partial data",
                 timeout,
             )
-        _write_position_snapshot(db_conn, self._positions)
-        _reconcile_against_db(db_conn, self._positions, [])
+        reconciliation._write_position_snapshot(db_conn, self._positions)
+        reconciliation._reconcile_against_db(db_conn, self._positions, [])
         logger.info("Periodic reconciliation complete")
 
     # ── Session 3 (item 4/3a): public account + market-data + order-slot API ──
@@ -921,184 +923,6 @@ class IBApp(EWrapper, EClient):
         self._register_order_slot(order_id)
         self.placeOrder(order_id, contract, order)
         return self._await_registered_order(order_id, timeout)
-
-
-# ── Plan 03-3: Module-level helper functions ───────────────────────────────
-
-
-def _write_position_snapshot(db_conn, positions: list[dict]) -> None:
-    """
-    Insert one row per position into broker_positions_snapshot.
-
-    Does NOT populate market_value — no live prices at reconciliation time.
-    Commits after all inserts. Safe to call with an empty positions list.
-    """
-    with db_conn.cursor() as cur:
-        for pos in positions:
-            cur.execute(
-                "INSERT INTO broker_positions_snapshot (ticker, position, avg_cost, snapshot_at)"
-                " VALUES (%s, %s, %s, NOW())",
-                (pos["ticker"], pos["position"], pos["avg_cost"]),
-            )
-    db_conn.commit()
-    logger.info("Wrote %d position rows to broker_positions_snapshot", len(positions))
-
-
-def _reconcile_against_db(db_conn, ibkr_positions: list[dict], ibkr_orders: list[dict]) -> None:
-    """
-    Compare IBKR positions against open lots in position_lots.
-
-    Logs WARNING for any quantity mismatch. NEVER writes to position_lots (D-08).
-    """
-    ibkr_pos_map = {p["ticker"]: p["position"] for p in ibkr_positions}
-
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "SELECT ticker, SUM(quantity) FROM position_lots"
-            " WHERE lot_closed_at IS NULL GROUP BY ticker"
-        )
-        db_open = {row[0]: row[1] for row in cur.fetchall()}
-
-    # Check DB lots against IBKR
-    for ticker, db_qty in db_open.items():
-        ibkr_qty = ibkr_pos_map.get(ticker, 0)
-        if db_qty != ibkr_qty:
-            logger.warning(
-                "RECONCILE MISMATCH ticker=%s db_open_qty=%s ibkr_qty=%s"
-                " — operator review required",
-                ticker,
-                db_qty,
-                ibkr_qty,
-            )
-
-    # Check IBKR positions not in DB
-    for ticker, qty in ibkr_pos_map.items():
-        if ticker not in db_open and qty != 0:
-            logger.warning(
-                "RECONCILE IBKR HAS POSITION NOT IN DB ticker=%s ibkr_qty=%s"
-                " — operator review required",
-                ticker,
-                qty,
-            )
-
-    # D-08: never write to position_lots
-    logger.info("Reconciliation complete — DB not modified (D-08)")
-
-
-# ── Phase 5: Module-level fill capture + order status helpers ──────────────
-
-
-def _handle_exec_details(db_conn, execution, contract) -> None:
-    """
-    Module-level helper invoked by IBApp.execDetails (D-01 / D-04).
-
-    Sequence:
-      1. Look up orders.id + orders.action by ibkr_order_id (execution.orderId)
-      2. INSERT a row into executions (idempotent via exec_id UNIQUE)
-      3. Dispatch to positions.open_lot (BUY) or positions.partial_close_lot (SELL)
-
-    The positions module is imported inside this function (deferred import)
-    to avoid a circular dependency at module load time (mirror of
-    executor.py's deferred import of ibapp).
-    """
-    logger.info(
-        "execDetails: execId=%s orderId=%s side=%s shares=%s price=%s",
-        execution.execId, execution.orderId, execution.side,
-        execution.shares, execution.price,
-    )
-
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, action FROM orders WHERE ibkr_order_id = %s",
-            (execution.orderId,),
-        )
-        row = cur.fetchone()
-    if row is None:
-        logger.error(
-            "execDetails: no order found for ibkr_order_id=%s — "
-            "cannot write execution (exec_id=%s)",
-            execution.orderId, execution.execId,
-        )
-        return
-    db_order_id, order_action = row[0], row[1]
-
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO executions (order_id, exec_id, shares, price, exec_time) "
-            "VALUES (%s, %s, %s, %s, NOW()) "
-            "ON CONFLICT (exec_id) DO NOTHING "
-            "RETURNING id",
-            (db_order_id, execution.execId, int(execution.shares),
-             float(execution.price)),
-        )
-        inserted = cur.fetchone()
-    db_conn.commit()
-
-    # Replay-safety gate (IMPROVEMENTS item 16): the INSERT above no-ops on
-    # ON CONFLICT (exec_id already recorded), but without this guard the lot
-    # dispatch below would still run unconditionally on every replay,
-    # double-counting the position on each reconnect. Only dispatch when the
-    # RETURNING id fetch proves a row was actually inserted.
-    if inserted is None:
-        logger.info(
-            "execDetails: replay no-op — exec_id=%s already recorded, "
-            "skipping lot dispatch",
-            execution.execId,
-        )
-        return
-
-    # Deferred import to avoid circular dependency
-    # (bravos.execution.positions has no IBKR dependency, so the import
-    # is safe at call time but unnecessary at module load).
-    from bravos.execution import positions
-    ticker = contract.symbol
-    if order_action == "BUY":
-        positions.open_lot(
-            ticker, int(execution.shares), float(execution.price), db_conn,
-        )
-    else:  # SELL
-        positions.partial_close_lot(
-            ticker, int(execution.shares), float(execution.price), db_conn,
-        )
-
-
-def _update_order_filled(db_conn, ibkr_order_id: int, avg_fill_price: float) -> None:
-    """
-    Set orders.status='FILLED' + fill_price + filled_at (EXEC-06, D-02).
-
-    Called from orderStatus when status == 'Filled' (i.e. filled == totalQuantity).
-    """
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "UPDATE orders SET status='FILLED', fill_price=%s, filled_at=NOW() "
-            "WHERE ibkr_order_id=%s",
-            (avg_fill_price, ibkr_order_id),
-        )
-    db_conn.commit()
-    logger.info(
-        "orders.status -> FILLED for ibkr_order_id=%s avg_fill_price=%s",
-        ibkr_order_id, avg_fill_price,
-    )
-
-
-def _update_order_partial(db_conn, ibkr_order_id: int, avg_fill_price: float) -> None:
-    """
-    Set orders.status='PARTIAL' + fill_price (EXEC-06, D-02).
-
-    Called from orderStatus when status == 'PartiallyFilled'. Does NOT set
-    filled_at — the order is not complete yet.
-    """
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "UPDATE orders SET status='PARTIAL', fill_price=%s "
-            "WHERE ibkr_order_id=%s",
-            (avg_fill_price, ibkr_order_id),
-        )
-    db_conn.commit()
-    logger.info(
-        "orders.status -> PARTIAL for ibkr_order_id=%s avg_fill_price=%s",
-        ibkr_order_id, avg_fill_price,
-    )
 
 
 # ── Module-level singleton ─────────────────────────────────────────────────

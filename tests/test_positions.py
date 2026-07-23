@@ -274,7 +274,7 @@ def test_exec_details_writes_execution_row():
     References: EXEC-05, D-01, D-04.
     execDetails is the canonical callback for per-execution row writes (D-01).
     """
-    from bravos.broker import connection
+    from bravos.execution import fills
 
     mock_conn = MagicMock()
     mock_cur = MagicMock()
@@ -296,7 +296,7 @@ def test_exec_details_writes_execution_row():
     contract.symbol = "AAPL"
 
     with patch("bravos.execution.positions.open_lot") as mock_open_lot:
-        connection._handle_exec_details(mock_conn, execution, contract)
+        fills._handle_exec_details(mock_conn, execution, contract)
 
     # Assert: cursor.execute called at least twice (SELECT orders + INSERT executions)
     assert mock_cur.execute.call_count >= 2, (
@@ -321,7 +321,7 @@ def test_exec_details_idempotent():
     References: EXEC-05, D-01.
     Idempotency guard prevents duplicate fill rows if callback fires more than once.
     """
-    from bravos.broker import connection
+    from bravos.execution import fills
 
     mock_conn = MagicMock()
     mock_cur = MagicMock()
@@ -339,7 +339,7 @@ def test_exec_details_idempotent():
     contract.symbol = "MSFT"
 
     with patch("bravos.execution.positions.open_lot"):
-        connection._handle_exec_details(mock_conn, execution, contract)
+        fills._handle_exec_details(mock_conn, execution, contract)
 
     all_sql_calls = [str(call[0][0]) for call in mock_cur.execute.call_args_list]
     insert_calls = [sql for sql in all_sql_calls if "INSERT INTO executions" in sql]
@@ -357,13 +357,13 @@ def test_order_status_filled():
     References: EXEC-06, D-02.
     Order is FILLED only when filled==totalQuantity (D-02).
     """
-    from bravos.broker import connection
+    from bravos.execution import fills
 
     mock_conn = MagicMock()
     mock_cur = MagicMock()
     mock_conn.cursor.return_value.__enter__.return_value = mock_cur
 
-    connection._update_order_filled(mock_conn, ibkr_order_id=1000, avg_fill_price=150.25)
+    fills._update_order_filled(mock_conn, ibkr_order_id=1000, avg_fill_price=150.25)
 
     assert mock_cur.execute.call_count == 1, (
         f"Expected exactly 1 execute call, got {mock_cur.execute.call_count}"
@@ -394,13 +394,13 @@ def test_order_status_partial():
     References: EXEC-06, D-02.
     Intermediate fills (filled < totalQuantity) set status=PARTIAL (D-02).
     """
-    from bravos.broker import connection
+    from bravos.execution import fills
 
     mock_conn = MagicMock()
     mock_cur = MagicMock()
     mock_conn.cursor.return_value.__enter__.return_value = mock_cur
 
-    connection._update_order_partial(mock_conn, 1001, 149.75)
+    fills._update_order_partial(mock_conn, 1001, 149.75)
 
     assert mock_cur.execute.call_count == 1, (
         f"Expected exactly 1 execute call, got {mock_cur.execute.call_count}"
@@ -429,7 +429,7 @@ def test_periodic_reconciliation_mismatch(db_connection):
     Mismatches logged as WARNING, never auto-corrected (D-09).
     Reuses _reconcile_against_db and _write_position_snapshot helpers (D-10).
     """
-    from bravos.broker.connection import _reconcile_against_db
+    from bravos.broker.reconciliation import _reconcile_against_db
 
     ticker = f"REC_{os.urandom(3).hex()}"
     try:
@@ -444,7 +444,7 @@ def test_periodic_reconciliation_mismatch(db_connection):
         # IBKR reports only 50 shares — mismatch (D-09: 50 != 100)
         ibkr_positions = [{"ticker": ticker, "position": 50, "avg_cost": 50.0}]
 
-        with patch("bravos.broker.connection.logger") as mock_logger:
+        with patch("bravos.broker.reconciliation.logger") as mock_logger:
             _reconcile_against_db(db_connection, ibkr_positions, [])
 
             # Assert: at least one warning call mentioning RECONCILE MISMATCH and the ticker
