@@ -409,7 +409,7 @@ def test_replay_duplicate_exec_id_no_double_dispatch():
     """A replayed fill whose exec_id is already recorded is a true no-op —
     the RETURNING id fetch is None (ON CONFLICT), so no lot is dispatched."""
     from unittest.mock import MagicMock, patch
-    from bravos.broker import connection
+    from bravos.execution import fills
 
     mock_conn = MagicMock()
     mock_cur = MagicMock()
@@ -429,7 +429,7 @@ def test_replay_duplicate_exec_id_no_double_dispatch():
 
     with patch("bravos.execution.positions.open_lot") as m_open, \
          patch("bravos.execution.positions.partial_close_lot") as m_close:
-        connection._handle_exec_details(mock_conn, execution, contract)
+        fills._handle_exec_details(mock_conn, execution, contract)
 
     m_open.assert_not_called()
     m_close.assert_not_called()
@@ -443,7 +443,7 @@ def test_replay_unknown_order_id_skipped():
     """An execDetails callback for an ibkr_order_id with no orders row is
     logged and skipped — it must not raise or dispatch a lot."""
     from unittest.mock import MagicMock, patch
-    from bravos.broker import connection
+    from bravos.execution import fills
 
     mock_conn = MagicMock()
     mock_cur = MagicMock()
@@ -461,7 +461,7 @@ def test_replay_unknown_order_id_skipped():
     contract.symbol = "AAPL"
 
     with patch("bravos.execution.positions.open_lot") as m_open:
-        connection._handle_exec_details(mock_conn, execution, contract)  # must not raise
+        fills._handle_exec_details(mock_conn, execution, contract)  # must not raise
 
     m_open.assert_not_called()
 
@@ -470,7 +470,7 @@ def test_replay_fresh_fill_dispatches_once():
     """A fresh, unseen fill for a known order inserts one execution row
     (RETURNING id is non-None) and dispatches exactly one lot."""
     from unittest.mock import MagicMock, patch
-    from bravos.broker import connection
+    from bravos.execution import fills
 
     mock_conn = MagicMock()
     mock_cur = MagicMock()
@@ -489,7 +489,7 @@ def test_replay_fresh_fill_dispatches_once():
     contract.symbol = "AAPL"
 
     with patch("bravos.execution.positions.open_lot") as m_open:
-        connection._handle_exec_details(mock_conn, execution, contract)
+        fills._handle_exec_details(mock_conn, execution, contract)
 
     m_open.assert_called_once_with("AAPL", 5, 150.0, mock_conn)
 
