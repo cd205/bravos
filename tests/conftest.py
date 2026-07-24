@@ -65,7 +65,7 @@ def _assert_no_fake_lots():
     """
     Session-scoped regression guard: after the full test suite runs, assert
     that no fake position_lots rows (matching the isolation-leak pattern
-    ^(OPN|PAR|FIF|SPN)_) were written to the effective database.
+    ^(OPN|PAR|FIF|SPN|CLO)_) were written to the effective database.
 
     This is the safety net behind the db_connection production-DB guard: if a
     future test somehow writes to a real DB (authorized scratch-DB run, or a
@@ -104,7 +104,7 @@ def _assert_no_fake_lots():
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT count(*) FROM position_lots WHERE ticker ~ %s",
-                ("^(OPN|PAR|FIF|SPN)_",),
+                ("^(OPN|PAR|FIF|SPN|CLO)_",),
             )
             (count,) = cur.fetchone()
     finally:
@@ -113,7 +113,7 @@ def _assert_no_fake_lots():
     if count > 0:
         pytest.fail(
             f"ISOLATION LEAK: {count} fake position_lots rows matching "
-            "^(OPN|PAR|FIF|SPN)_ found after test run — a test wrote to a real "
+            "^(OPN|PAR|FIF|SPN|CLO)_ found after test run — a test wrote to a real "
             "DB. Purge them and fix the leaking test."
         )
 
