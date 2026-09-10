@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Signal {{ signal.id }} — Bravos Alert Verification</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+    h1 { font-size: 1.25rem; }
+    h2 { font-size: 1rem; margin-top: 2rem; }
+    table { border-collapse: collapse; width: 100%; margin-top: 0.5rem; }
+    th, td { border: 1px solid #ddd; padding: 0.4rem 0.6rem; text-align: left; font-size: 0.9rem; }
+    th { background: #f5f5f5; }
+    dl { display: grid; grid-template-columns: 12rem 1fr; gap: 0.25rem 1rem; }
+    dt { font-weight: bold; }
+    a.back { display: inline-block; margin-bottom: 1rem; }
+    .empty { color: #888; font-style: italic; }
+    .gate-pass { color: #0a7a2a; }
+    .gate-fail { color: #b00020; }
+  </style>
+</head>
+<body>
+  <a class="back" href="/">&larr; Back to table</a>
+  <h1>Signal #{{ signal.id }} — {{ signal.ticker }}</h1>
+
+  <dl>
+    <dt>Post Title</dt><dd>{{ signal.post_title }}</dd>
+    <dt>Post URL</dt><dd><a href="{{ signal.post_url }}">{{ signal.post_url }}</a></dd>
+    <dt>Action Type</dt><dd>{{ signal.action_type or "—" }}</dd>
+    <dt>Weight From / To</dt><dd>{{ signal.weight_from }} &rarr; {{ signal.weight_to }}</dd>
+    <dt>Reference Price</dt><dd>{{ signal.reference_price if signal.reference_price is not none else "—" }}</dd>
+    <dt>Stop Loss</dt><dd>{{ signal.stop_loss if signal.stop_loss is not none else "n/a" }}</dd>
+    <dt>Take Profits</dt><dd>{{ signal.take_profits|join(", ") if signal.take_profits else "—" }}</dd>
+    <dt>Confidence</dt><dd>{{ signal.confidence or "—" }}</dd>
+    <dt>Parsed At</dt><dd>{{ signal.parsed_at }}</dd>
+  </dl>
+
+  <h2>Risk Gate Log</h2>
+  <table>
+    <thead>
+      <tr><th>Checked At</th><th>Result</th><th>Reason</th><th>Open Positions</th><th>Allocation %</th></tr>
+    </thead>
+    <tbody>
+      {% for g in gate_log %}
+      <tr>
+        <td>{{ g.checked_at }}</td>
+        <td class="{{ 'gate-pass' if g.gate_passed else 'gate-fail' }}">
+          {{ "PASS" if g.gate_passed else "BLOCKED" }}
+        </td>
+        <td>{{ g.reason }}</td>
+        <td>{{ g.open_positions }} / {{ g.max_positions }}</td>
+        <td>{{ g.order_allocation_pct }} / {{ g.max_allocation_pct }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="empty">No risk-gate checks recorded for this signal.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Order History</h2>
+  <table>
+    <thead>
+      <tr><th>ID</th><th>Type</th><th>Action</th><th>Qty</th><th>Status</th><th>Fill Price</th><th>Parent Order</th><th>OCA Group</th></tr>
+    </thead>
+    <tbody>
+      {% for o in orders %}
+      <tr>
+        <td>{{ o.id }}</td>
+        <td>{{ o.order_type }}</td>
+        <td>{{ o.action }}</td>
+        <td>{{ o.quantity }}</td>
+        <td>{{ o.status }}</td>
+        <td>{{ o.fill_price if o.fill_price is not none else "—" }}</td>
+        <td>{{ o.parent_order_id or "—" }}</td>
+        <td>{{ o.oca_group or "—" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="empty">No orders were placed for this signal.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

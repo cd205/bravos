@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-07-10T05:34:34.950Z",
+  "timestamp": "2026-09-09T07:58:49.104Z",
   "source": "auto-postool",
   "partial": false,
   "phase": null,
@@ -194,11 +194,11 @@
     },
     {
       "status": "M",
-      "path": "bravos/ingestion/parser.py"
+      "path": ".planning/phases/07-notifications-and-monitoring-query/07-CONTEXT.md"
     },
     {
       "status": "M",
-      "path": "bravos/ingestion/scraper.py"
+      "path": "CLAUDE.md"
     },
     {
       "status": "M",
@@ -206,53 +206,25 @@
     },
     {
       "status": "M",
-      "path": "scripts/execute_pending.py"
-    },
-    {
-      "status": "M",
-      "path": "scripts/run_ingestion.py"
+      "path": "queries/monitor.sql"
     },
     {
       "status": "??",
-      "path": ".planning/IMPLEMENTATION_PLAN.md"
+      "path": ".planning/quick/CHECKPOINT-issue-1-dashboard.md"
     },
     {
       "status": "??",
-      "path": ".planning/phases/09-bracket-orders/09-PATTERNS.md"
+      "path": "bravos/dashboard/"
     },
     {
       "status": "??",
-      "path": ".planning/quick/260707-75m-fix-ibkr-reconnect-loop-not-re-running-s/"
+      "path": "tests/test_dashboard.py"
     },
     {
       "status": "??",
-      "path": ".planning/quick/260708-7lk-fix-chrome-driver-crash-death-loop-dead-/"
-    },
-    {
-      "status": "??",
-      "path": ".planning/quick/260708-9az-fix-ibkr-error-10268-ibapi-9-81-order-de/"
-    },
-    {
-      "status": "??",
-      "path": "IMPROVEMENTS.md"
-    },
-    {
-      "status": "??",
-      "path": "infra/bravos-pause"
-    },
-    {
-      "status": "??",
-      "path": "infra/bravos-resume"
-    },
-    {
-      "status": "??",
-      "path": "scripts/backfill_tp_sl.py"
-    },
-    {
-      "status": "??",
-      "path": "scripts/check_positions.py"
+      "path": "tests/test_monitor_query.py"
     }
   ],
   "next_action": null,
-  "context_notes": "Stopped at: Phase 9 context gathered\n\nRecent commits:\n891c9c8 docs(quick-260710-7bi): test-DB isolation guard — Session 0b complete\n5748ae1 chore: merge quick task worktree (worktree-agent-af1e05d24ee24246f)\n25b761d test(quick-260710-7bi): add post-suite fake-lot regression finalizer\n8150449 fix(quick-260710-7bi): guard db_connection fixture against production DB\n9e616a6 docs(260710-7bi): pre-dispatch plan for test-DB isolation guard (Session 0b)"
+  "context_notes": "Stopped at: Phase 9 context gathered\n\nRecent commits:\nb6856b7 docs(260724-9rz): pre-dispatch plan for polish items 9-13 (Session 6)\nc11a327 fix(quick-260724-821): widen isolation-leak guard regex to catch CLO_ prefix\n7ee8728 docs(quick-260723-aqz): connection.py split — Session 5 complete (Verified 8/8)\n59b9f9a chore: merge quick task worktree (worktree-agent-aae47eb361d6672b0)\n02c0979 refactor(260723-aqz): extract snapshot/reconcile helpers into bravos/broker/reconciliation.py"
 }

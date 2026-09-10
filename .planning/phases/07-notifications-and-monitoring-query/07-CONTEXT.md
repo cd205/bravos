@@ -98,6 +98,11 @@ Add email alerting for two categories of critical event (circuit breaker trip; u
 
 - NOTF-V2-01 / NOTF-V2-02 (email on new signal placed, email on fill) — v2 requirements per REQUIREMENTS.md; out of scope for Phase 7.
 - Dashboard (DASH-01–04) — cut by decision 2026-05-20; user does not need a web UI.
+  **Superseded 2026-08-09 (GitHub issue #1):** decision reversed — daily
+  `psql`-based checking of `queries/monitor.sql` didn't scale as day-to-day
+  glanceability need became concrete. Built `bravos/dashboard/` (FastAPI +
+  Jinja2), reading `queries/monitor.sql` directly as its query source rather
+  than duplicating SQL. See issue #1 for full rationale.
 - Unrealized P&L in monitoring query — requires live price feed; not available in the DB.
 
 </deferred>

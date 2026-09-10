@@ -40,6 +40,16 @@ realized AS (
     FROM position_lots
     WHERE lot_closed_at IS NOT NULL
     GROUP BY ticker
+),
+stop_loss_check AS (
+    -- Per-signal stop-loss presence: does a STP order exist among this
+    -- signal's orders (parent or bracket child)? (Issue #1)
+    -- Signals with no orders at all are absent from this CTE and resolve to
+    -- FALSE via COALESCE below; signals.stop_loss IS NULL is handled outside
+    -- this CTE (not-applicable, not false) via the outer CASE.
+    SELECT signal_id, BOOL_OR(order_type = 'STP') AS stop_loss_ordered
+    FROM orders
+    GROUP BY signal_id
 )
 SELECT
     s.id               AS signal_id,
@@ -51,10 +61,14 @@ SELECT
     lo.status          AS order_status,
     lo.fill_price,
     oq.open_quantity,
-    r.realized_pnl
+    r.realized_pnl,
+    CASE WHEN s.stop_loss IS NULL THEN NULL
+         ELSE COALESCE(slc.stop_loss_ordered, FALSE)
+    END                AS stop_loss_ordered
 FROM signals s
-LEFT JOIN latest_gate  lg ON lg.signal_id = s.id
-LEFT JOIN latest_order lo ON lo.signal_id = s.id
-LEFT JOIN open_qty     oq ON oq.ticker    = s.ticker
-LEFT JOIN realized      r ON r.ticker     = s.ticker
+LEFT JOIN latest_gate     lg  ON lg.signal_id  = s.id
+LEFT JOIN latest_order    lo  ON lo.signal_id  = s.id
+LEFT JOIN open_qty        oq  ON oq.ticker     = s.ticker
+LEFT JOIN realized         r  ON r.ticker      = s.ticker
+LEFT JOIN stop_loss_check slc ON slc.signal_id = s.id
 ORDER BY s.parsed_at DESC;
